@@ -1,6 +1,6 @@
 import { env } from '../config/env.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
-import { hashSecret, verifySecret } from '../utils/password.js';
+import { hashSecret, verifySecret, DUMMY_PASSWORD_HASH } from '../utils/password.js';
 import { UnauthorizedError, ForbiddenError, ValidationError, ConflictError } from '../utils/errors.js';
 import {
   loginSchema,
@@ -40,6 +40,13 @@ export const login = asyncHandler(async (req, res) => {
   const user = await findByEmail(email);
   const invalidCredentials = () => new UnauthorizedError('Invalid email or password');
 
+  // Always run a bcrypt comparison of the same cost, whether or not the account
+  // exists (and even if it exists but has no local password - an SSO-only
+  // account). Skipping bcrypt on the "not found" path would make that path
+  // measurably faster than a real wrong-password check, letting an attacker
+  // enumerate registered emails purely by timing the response.
+  const passwordValid = await verifySecret(password, user?.password_hash ?? DUMMY_PASSWORD_HASH);
+
   if (!user) {
     await recordEvent({ eventType: 'login_failed', ipAddress: req.ip, metadata: { email } });
     throw invalidCredentials();
@@ -53,7 +60,6 @@ export const login = asyncHandler(async (req, res) => {
     throw new ForbiddenError('This account has been disabled. Contact an administrator.');
   }
 
-  const passwordValid = await verifySecret(password, user.password_hash);
   if (!passwordValid) {
     await recordFailedLogin(user.id, {
       maxAttempts: env.LOGIN_MAX_ATTEMPTS,
@@ -166,12 +172,17 @@ export const me = asyncHandler(async (req, res) => {
       role: user.role,
       totpEnabled: user.totp_enabled,
       mustChangePassword: user.must_change_password,
+      hasPassword: user.password_hash !== null,
     },
   });
 });
 
 export const changePassword = asyncHandler(async (req, res) => {
   const { currentPassword, newPassword } = changePasswordSchema.parse(req.body);
+
+  if (!req.user.password_hash) {
+    throw new ValidationError('This account signs in via SSO and has no password to change');
+  }
 
   const valid = await verifySecret(currentPassword, req.user.password_hash);
   if (!valid) throw new UnauthorizedError('Current password is incorrect');

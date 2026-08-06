@@ -2,7 +2,8 @@ import { pool } from '../config/db.js';
 
 const PUBLIC_COLUMNS = `
   id, email, full_name, role, status, totp_enabled, must_change_password,
-  failed_login_attempts, locked_until, created_at, updated_at
+  failed_login_attempts, locked_until, created_at, updated_at,
+  (password_hash IS NOT NULL) AS has_password
 `;
 
 export async function findByEmail(email) {
@@ -100,4 +101,37 @@ export async function resetFailedLogins(id) {
     'UPDATE users SET failed_login_attempts = 0, locked_until = NULL, updated_at = now() WHERE id = $1',
     [id],
   );
+}
+
+export async function findByOAuthIdentity(provider, providerUserId) {
+  const { rows } = await pool.query(
+    `SELECT u.* FROM oauth_identities oi
+     JOIN users u ON u.id = oi.user_id
+     WHERE oi.provider = $1 AND oi.provider_user_id = $2`,
+    [provider, providerUserId],
+  );
+  return rows[0] ?? null;
+}
+
+export async function linkOAuthIdentity(userId, provider, providerUserId, email) {
+  await pool.query(
+    `INSERT INTO oauth_identities (user_id, provider, provider_user_id, email)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (provider, provider_user_id) DO NOTHING`,
+    [userId, provider, providerUserId, email],
+  );
+}
+
+// SSO-provisioned accounts have no local password (password_hash stays NULL)
+// and skip must_change_password entirely - there is no password to change
+// until/unless an admin sets one later. They still go through the same forced
+// 2FA setup as every other account.
+export async function createUserFromOAuth({ email, fullName }) {
+  const { rows } = await pool.query(
+    `INSERT INTO users (email, full_name, password_hash, role, must_change_password)
+     VALUES ($1, $2, NULL, 'user', FALSE)
+     RETURNING ${PUBLIC_COLUMNS}`,
+    [email.toLowerCase(), fullName],
+  );
+  return rows[0];
 }

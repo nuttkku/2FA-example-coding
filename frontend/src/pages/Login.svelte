@@ -1,11 +1,40 @@
 <script>
+  import { onMount } from 'svelte';
   import { push } from 'svelte-spa-router';
   import { api, ApiError } from '../lib/api.js';
+
+  const SSO_ERROR_MESSAGES = {
+    unknown_provider: 'That sign-in method is not available.',
+    sso_expired: 'That sign-in attempt expired, please try again.',
+    sso_denied: 'Sign-in was cancelled or denied by the provider.',
+    sso_failed: 'Sign-in failed, please try again.',
+  };
 
   let email = '';
   let password = '';
   let error = '';
   let loading = false;
+  let providers = [];
+
+  onMount(async () => {
+    const hash = window.location.hash;
+    const queryIndex = hash.indexOf('?');
+    if (queryIndex !== -1) {
+      const params = new URLSearchParams(hash.slice(queryIndex + 1));
+      const ssoError = params.get('error');
+      if (ssoError) {
+        error = SSO_ERROR_MESSAGES[ssoError] || 'Sign-in failed, please try again.';
+        history.replaceState(null, '', window.location.pathname + window.location.search + '#/login');
+      }
+    }
+
+    try {
+      const result = await api.sso.listProviders();
+      providers = result.providers;
+    } catch {
+      providers = [];
+    }
+  });
 
   async function handleSubmit() {
     error = '';
@@ -47,5 +76,14 @@
         {loading ? 'Signing in…' : 'Continue'}
       </button>
     </form>
+
+    {#if providers.length > 0}
+      <div class="stack" style="margin-top:1.25rem; padding-top:1.25rem; border-top:1px solid var(--color-border);">
+        <p class="hint" style="margin:0 0 0.25rem;">Or continue with</p>
+        {#each providers as provider (provider.id)}
+          <a class="btn btn-secondary btn-block" href={api.sso.startUrl(provider.id)}>{provider.label}</a>
+        {/each}
+      </div>
+    {/if}
   </div>
 </div>

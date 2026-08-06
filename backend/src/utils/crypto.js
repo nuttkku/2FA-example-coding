@@ -7,11 +7,12 @@ import { env } from '../config/env.js';
 // detects tampering) while still letting the server decrypt it on demand.
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 12;
+const AUTH_TAG_LENGTH = 16;
 const ENCRYPTION_KEY = Buffer.from(env.TOTP_ENCRYPTION_KEY, 'hex');
 
 export function encryptSecret(plainText) {
   const iv = crypto.randomBytes(IV_LENGTH);
-  const cipher = crypto.createCipheriv(ALGORITHM, ENCRYPTION_KEY, iv);
+  const cipher = crypto.createCipheriv(ALGORITHM, ENCRYPTION_KEY, iv, { authTagLength: AUTH_TAG_LENGTH });
   const ciphertext = Buffer.concat([cipher.update(plainText, 'utf8'), cipher.final()]);
   const authTag = cipher.getAuthTag();
 
@@ -24,7 +25,14 @@ export function decryptSecret(payload) {
   const authTag = Buffer.from(authTagB64, 'base64');
   const ciphertext = Buffer.from(ciphertextB64, 'base64');
 
-  const decipher = crypto.createDecipheriv(ALGORITHM, ENCRYPTION_KEY, iv);
+  // Pinning authTagLength defends against a truncated-tag forgery attack: without
+  // it, an attacker who could influence the stored tag could supply a short tag
+  // that is easier to brute-force, weakening GCM's authentication guarantee.
+  if (authTag.length !== AUTH_TAG_LENGTH) {
+    throw new Error('Invalid auth tag length');
+  }
+
+  const decipher = crypto.createDecipheriv(ALGORITHM, ENCRYPTION_KEY, iv, { authTagLength: AUTH_TAG_LENGTH });
   decipher.setAuthTag(authTag);
   const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
   return plaintext.toString('utf8');

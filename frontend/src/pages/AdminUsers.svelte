@@ -148,6 +148,7 @@
             <tr>
               <th>Name</th>
               <th>Email</th>
+              <th>Sign-in</th>
               <th>Role</th>
               <th>Status</th>
               <th>2FA</th>
@@ -159,6 +160,7 @@
               <tr>
                 <td>{user.full_name}</td>
                 <td>{user.email}</td>
+                <td>{user.has_password ? 'Password' : 'SSO only'}</td>
                 <td>
                   {#if isAdmin}
                     <select value={user.role} on:change={(e) => changeRole(user, e.target.value)}>

@@ -5,6 +5,14 @@ const schema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   PORT: z.coerce.number().default(4000),
 
+  // "false" by default: this docker-compose setup exposes the backend port directly,
+  // with no reverse proxy in front of it. Trusting X-Forwarded-For with no real proxy
+  // there to set it would let any client spoof req.ip, defeating IP-based rate
+  // limiting/lockout and forging the audit log's ip_address. Only set this (to a hop
+  // count like "1", or a specific proxy IP/subnet) if you put a real reverse proxy
+  // in front of the backend.
+  TRUST_PROXY: z.string().default('false'),
+
   DB_HOST: z.string().min(1),
   DB_PORT: z.coerce.number().default(5432),
   DB_USER: z.string().min(1),
@@ -14,6 +22,7 @@ const schema = z.object({
   ACCESS_TOKEN_SECRET: z.string().min(16, 'ACCESS_TOKEN_SECRET must be set to a long random value'),
   REFRESH_TOKEN_SECRET: z.string().min(16, 'REFRESH_TOKEN_SECRET must be set to a long random value'),
   PRE_AUTH_TOKEN_SECRET: z.string().min(16, 'PRE_AUTH_TOKEN_SECRET must be set to a long random value'),
+  SSO_STATE_SECRET: z.string().min(16, 'SSO_STATE_SECRET must be set to a long random value'),
   ACCESS_TOKEN_TTL: z.string().default('15m'),
   REFRESH_TOKEN_TTL: z.string().default('7d'),
   PRE_AUTH_TOKEN_TTL: z.string().default('5m'),

@@ -8,7 +8,10 @@ export const COOKIE_NAMES = {
   preAuth: 'pre_auth_token',
   access: 'access_token',
   refresh: 'refresh_token',
+  ssoState: 'sso_state',
 };
+
+const SSO_STATE_TTL = '10m';
 
 const COOKIE_BASE = {
   httpOnly: true,
@@ -17,12 +20,17 @@ const COOKIE_BASE = {
   path: '/',
 };
 
+// Pinned explicitly (rather than relying on jsonwebtoken's default algorithm
+// inference from the key type) so a token can never be verified under a
+// different/weaker algorithm than the one it was signed with.
+const JWT_ALGORITHM = 'HS256';
+
 function sha256(value) {
   return crypto.createHash('sha256').update(value).digest('hex');
 }
 
 function signWithMaxAge(payload, secret, ttl) {
-  const token = jwt.sign(payload, secret, { expiresIn: ttl });
+  const token = jwt.sign(payload, secret, { expiresIn: ttl, algorithm: JWT_ALGORITHM });
   const { exp } = jwt.decode(token);
   const maxAge = exp * 1000 - Date.now();
   return { token, maxAge };
@@ -46,7 +54,7 @@ export function verifyPreAuthCookie(req, expectedStage) {
 
   let payload;
   try {
-    payload = jwt.verify(token, env.PRE_AUTH_TOKEN_SECRET);
+    payload = jwt.verify(token, env.PRE_AUTH_TOKEN_SECRET, { algorithms: [JWT_ALGORITHM] });
   } catch {
     throw new UnauthorizedError('2FA session expired, please log in again');
   }
@@ -59,6 +67,36 @@ export function verifyPreAuthCookie(req, expectedStage) {
 
 export function clearPreAuthCookie(res) {
   res.clearCookie(COOKIE_NAMES.preAuth, COOKIE_BASE);
+}
+
+// --- SSO state: holds the CSRF state / OIDC nonce / PKCE code_verifier for an
+// in-progress external login between the redirect to the identity provider and
+// the callback coming back. Signed with its own secret so it can never be
+// confused with (or forged as) any of the other cookie types above.
+export function issueSsoStateCookie(res, statePayload) {
+  const { token, maxAge } = signWithMaxAge({ ...statePayload, typ: 'sso_state' }, env.SSO_STATE_SECRET, SSO_STATE_TTL);
+  res.cookie(COOKIE_NAMES.ssoState, token, { ...COOKIE_BASE, maxAge });
+}
+
+export function verifySsoStateCookie(req, expectedProvider) {
+  const token = req.cookies[COOKIE_NAMES.ssoState];
+  if (!token) throw new UnauthorizedError('Login attempt expired, please try again');
+
+  let payload;
+  try {
+    payload = jwt.verify(token, env.SSO_STATE_SECRET, { algorithms: [JWT_ALGORITHM] });
+  } catch {
+    throw new UnauthorizedError('Login attempt expired, please try again');
+  }
+
+  if (payload.typ !== 'sso_state' || payload.provider !== expectedProvider) {
+    throw new UnauthorizedError('Login attempt expired, please try again');
+  }
+  return payload;
+}
+
+export function clearSsoStateCookie(res) {
+  res.clearCookie(COOKIE_NAMES.ssoState, COOKIE_BASE);
 }
 
 // --- Access token: short-lived, used to authenticate normal API calls.
@@ -77,7 +115,7 @@ export function verifyAccessCookie(req) {
 
   let payload;
   try {
-    payload = jwt.verify(token, env.ACCESS_TOKEN_SECRET);
+    payload = jwt.verify(token, env.ACCESS_TOKEN_SECRET, { algorithms: [JWT_ALGORITHM] });
   } catch {
     throw new UnauthorizedError('Session expired');
   }
@@ -113,7 +151,7 @@ export async function rotateRefreshCookie(req, res) {
 
   let payload;
   try {
-    payload = jwt.verify(token, env.REFRESH_TOKEN_SECRET);
+    payload = jwt.verify(token, env.REFRESH_TOKEN_SECRET, { algorithms: [JWT_ALGORITHM] });
   } catch {
     throw new UnauthorizedError('Session expired, please log in again');
   }
@@ -144,7 +182,7 @@ export async function revokeRefreshCookie(req) {
   const token = req.cookies[COOKIE_NAMES.refresh];
   if (!token) return;
   try {
-    const payload = jwt.verify(token, env.REFRESH_TOKEN_SECRET);
+    const payload = jwt.verify(token, env.REFRESH_TOKEN_SECRET, { algorithms: [JWT_ALGORITHM] });
     await pool.query('UPDATE refresh_tokens SET revoked_at = now() WHERE id = $1 AND revoked_at IS NULL', [
       payload.jti,
     ]);

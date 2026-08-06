@@ -36,6 +36,13 @@ export const api = {
     request('/auth/change-password', { method: 'POST', body: { currentPassword, newPassword } }),
   regenerateBackupCodes: () => request('/auth/2fa/backup-codes/regenerate', { method: 'POST' }),
 
+  sso: {
+    listProviders: () => request('/auth/sso/providers'),
+    // Not a fetch - a real page navigation, since the browser itself has to
+    // follow the redirect chain out to the identity provider and back.
+    startUrl: (providerId) => `${BASE_URL}/auth/sso/${providerId}/start`,
+  },
+
   admin: {
     listUsers: (search) =>
       request(`/admin/users${search ? `?search=${encodeURIComponent(search)}` : ''}`),

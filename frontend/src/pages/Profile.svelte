@@ -50,7 +50,13 @@
     </button>
 
     <div style="margin-top:1.5rem;">
-      <a href="#/change-password">Change password</a>
+      {#if $authStore.user?.hasPassword}
+        <a href="#/change-password">Change password</a>
+      {:else}
+        <p class="hint" style="margin:0;">
+          This account signs in via an external provider (SSO) and has no local password to change.
+        </p>
+      {/if}
     </div>
   </div>
 </div>

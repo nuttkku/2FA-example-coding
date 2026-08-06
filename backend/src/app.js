@@ -6,11 +6,19 @@ import morgan from 'morgan';
 import { env } from './config/env.js';
 import authRoutes from './routes/auth.routes.js';
 import adminRoutes from './routes/admin.routes.js';
+import ssoRoutes from './routes/sso.routes.js';
 import { notFoundHandler, errorHandler } from './middleware/error.middleware.js';
 
 export const app = express();
 
-app.set('trust proxy', 1);
+function parseTrustProxy(value) {
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  if (/^\d+$/.test(value)) return Number(value);
+  return value;
+}
+
+app.set('trust proxy', parseTrustProxy(env.TRUST_PROXY));
 
 app.use(helmet());
 app.use(
@@ -26,6 +34,7 @@ app.use(morgan(env.NODE_ENV === 'development' ? 'dev' : 'combined'));
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
 app.use('/api/auth', authRoutes);
+app.use('/api/auth/sso', ssoRoutes);
 app.use('/api/admin', adminRoutes);
 
 app.use(notFoundHandler);

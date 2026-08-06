@@ -1,0 +1,42 @@
+{
+  "realm": "twofa-example",
+  "enabled": true,
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "clients": [
+    {
+      "clientId": "twofa-backend",
+      "name": "2FA Example backend",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "secret": "twofa-backend-secret-change-me",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "http://localhost:5173/api/auth/sso/keycloak/callback"
+      ],
+      "webOrigins": [
+        "http://localhost:5173"
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "demo@example.com",
+      "email": "demo@example.com",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Demo",
+      "lastName": "User",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "DemoPass123",
+          "temporary": false
+        }
+      ]
+    }
+  ]
+}
