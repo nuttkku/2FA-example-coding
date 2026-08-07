@@ -128,8 +128,10 @@ docker compose -f docker-compose.yml -f docker-compose.keycloak.yml up -d --buil
 ทั้ง 2 บัญชีต้องผ่าน 2FA setup บังคับก่อนถึงจะเข้าใช้งานได้ (ไม่มีทางลัด แม้เป็นบัญชีทดสอบ) — login ด้วย
 รหัสผ่านที่ตั้งไว้ ระบบจะบังคับให้ตั้ง 2FA และ (เฉพาะ `admin`) เปลี่ยนรหัสผ่านทันทีตั้งแต่ครั้งแรกที่ login
 
-> ⚠️ บัญชี `TEST_USER_*` มีไว้เพื่อความสะดวกในการทดสอบ/สาธิต RBAC เท่านั้น **ลบหรือเปลี่ยนรหัสผ่านก่อนนำไป
-> deploy จริงเสมอ**
+> ⚠️ บัญชี `TEST_USER_*` มีไว้เพื่อความสะดวกในการทดสอบ/สาธิต RBAC เท่านั้น — **ไม่ถูก seed เข้าฐานข้อมูล
+> เลยถ้า `NODE_ENV=production`** (เช็คก่อนแตะฐานข้อมูลเลยใน `seedTestUser()`) ดังนั้น deploy จริงจะไม่มี
+> บัญชีนี้ให้ต้องมาลบทีหลัง ต่างจาก `ADMIN_EMAIL`/`ADMIN_PASSWORD` ที่ยัง seed เสมอทุก environment
+> เพราะเป็น bootstrap ที่จำเป็น (แต่ยังคงต้องเปลี่ยนค่า default เองอยู่ดี)
 
 ### คำสั่งอื่น ๆ ที่มีประโยชน์
 
@@ -502,7 +504,7 @@ CI/CD อยู่ใน [CI-CD.md](CI-CD.md)
 | `COOKIE_SECURE` | ตั้ง `true` เฉพาะตอนรันผ่าน HTTPS จริง |
 | `LOGIN_MAX_ATTEMPTS` / `LOGIN_LOCK_MINUTES` | นโยบาย account lockout |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` / `ADMIN_FULL_NAME` | บัญชี admin ที่ seed ให้อัตโนมัติตอน start ครั้งแรก (ถูกบังคับเปลี่ยนรหัสผ่าน + ตั้ง 2FA ทันทีที่ login ครั้งแรก) |
-| `TEST_USER_EMAIL` / `TEST_USER_PASSWORD` / `TEST_USER_FULL_NAME` | บัญชี role `user` ที่ seed ให้อัตโนมัติเช่นกัน (มี default ในตัว ไม่บังคับตั้งเหมือน `ADMIN_*`) สำหรับทดสอบ RBAC ฝั่ง user ธรรมดาโดยไม่ต้องสร้างมือ — ลบ/เปลี่ยนก่อน deploy จริง |
+| `TEST_USER_EMAIL` / `TEST_USER_PASSWORD` / `TEST_USER_FULL_NAME` | บัญชี role `user` สำหรับทดสอบ RBAC โดยไม่ต้องสร้างมือ (มี default ในตัว ไม่บังคับตั้งเหมือน `ADMIN_*`) — seed ให้เฉพาะเมื่อ `NODE_ENV` ไม่ใช่ `production` เท่านั้น |
 | `FACEBOOK_ENABLED` / `FACEBOOK_CLIENT_ID` / `FACEBOOK_CLIENT_SECRET` | เปิด Facebook Login (ดูวิธีขอมาที่หัวข้อ [SSO / OIDC](#-sso--oidc-facebook-line-keycloak)) |
 | `LINE_ENABLED` / `LINE_CLIENT_ID` / `LINE_CLIENT_SECRET` | เปิด LINE Login |
 | `KEYCLOAK_ENABLED` / `KEYCLOAK_ISSUER_URL` / `KEYCLOAK_CLIENT_ID` / `KEYCLOAK_CLIENT_SECRET` | เปิด Keycloak (มี `KEYCLOAK_PUBLIC_ISSUER_URL`/`KEYCLOAK_ALLOW_INSECURE` เพิ่มเติมสำหรับ setup แบบ docker-compose ในเครื่อง) |

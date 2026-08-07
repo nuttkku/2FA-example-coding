@@ -1,5 +1,5 @@
 import { pool } from '../config/db.js';
-import { env } from '../config/env.js';
+import { env, isProduction } from '../config/env.js';
 import { hashSecret } from '../utils/password.js';
 import { logger } from '../utils/logger.js';
 
@@ -27,7 +27,17 @@ export async function seedAdmin() {
 // without having to create one by hand first. Keyed by this specific email
 // rather than "does any user role exist" like seedAdmin, since regular users
 // are expected to accumulate normally and shouldn't block re-seeding logic.
+//
+// Skipped entirely when NODE_ENV=production: this account exists purely for
+// local testing/demos, unlike the admin account there is no bootstrap need
+// for it, so a real deployment should never get it auto-created into its
+// database in the first place - not even once, not even to be deleted later.
 export async function seedTestUser() {
+  if (isProduction) {
+    logger.info('NODE_ENV=production: skipping test user seed (this account is for testing only)');
+    return;
+  }
+
   const { rows } = await pool.query('SELECT id FROM users WHERE email = $1', [env.TEST_USER_EMAIL.toLowerCase()]);
   if (rows.length > 0) {
     logger.info('Test user account already exists, skipping seed');
