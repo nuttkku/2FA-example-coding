@@ -5,7 +5,7 @@
 
 > ## ⚠️ ก่อนแก้ไข/เพิ่ม feature ใด ๆ
 > 1. **อ่าน [CI-CD.md](CI-CD.md) ก่อนเริ่มงานทุกครั้ง** — มีขั้นตอนที่ CI บังคับตรวจ (npm audit, Semgrep,
->    docker build, smoke test) และคำสั่งรันเหมือน CI บนเครื่องตัวเองก่อน push
+>    docker build, Trivy image scan, smoke test) และคำสั่งรันเหมือน CI บนเครื่องตัวเองก่อน push
 > 2. แก้โค้ดแล้ว **สแกนความปลอดภัยอีกรอบก่อน commit** — อย่างน้อยรัน Semgrep ตามคำสั่งใน CI-CD.md
 >    (`docker run --rm -v "$PWD:/src" semgrep/semgrep semgrep scan --config p/security-audit
 >    --config p/secrets --config p/javascript --config p/nodejsscan --exclude node_modules
@@ -32,7 +32,8 @@
 Stack: **Svelte 4 + Vite** (frontend) / **Node.js + Express** (backend) / **PostgreSQL 16** (database)
 
 ดู [README.md](README.md) สำหรับคำอธิบายขั้นตอนการทำงานแบบละเอียด (ใช้เป็นแหล่งเรียนรู้) และวิธีรัน,
-ดู [CI-CD.md](CI-CD.md) สำหรับกระบวนการพัฒนา/ตรวจสอบอัตโนมัติ
+ดู [CI-CD.md](CI-CD.md) สำหรับกระบวนการพัฒนา/ตรวจสอบอัตโนมัติ, ดู [CREDIT.md](CREDIT.md) สำหรับรายชื่อ
+open-source software/บริการที่ใช้ในโปรเจกต์
 
 ## สถาปัตยกรรม
 
@@ -305,7 +306,16 @@ bash scripts/smoke-test.sh         # ยิง API จริงทดสอบ f
 ```
 
 ไม่มี migration/seed command ที่ต้องรันแยกมือ — `backend/src/server.js` เรียก `runMigrations()`
-แล้ว `seedAdmin()` ก่อน `app.listen()` ทุกครั้งที่ container start (idempotent ทั้งคู่)
+แล้ว `seedAdmin()` + `seedTestUser()` ก่อน `app.listen()` ทุกครั้งที่ container start (idempotent ทั้งคู่)
+
+`seedTestUser()` ([backend/src/db/seed.js](backend/src/db/seed.js)) สร้างบัญชี role `user` เพิ่มจาก
+`TEST_USER_EMAIL`/`TEST_USER_PASSWORD` (default: `user@example.com` / `UserTest123`) — เพื่อให้มีบัญชี
+ทั้ง 2 สิทธิ์ (`admin` จาก `seedAdmin()`, `user` จากตัวนี้) พร้อมทดสอบ RBAC ได้ทันทีโดยไม่ต้องสร้างมือก่อน
+ต่างจาก `ADMIN_EMAIL`/`ADMIN_PASSWORD` ที่**ไม่มี default** (บังคับตั้งเอง) ตัวนี้มี default เพราะเป็นแค่
+ความสะดวกสำหรับทดสอบ ไม่ใช่ขั้นตอน bootstrap ที่จำเป็น และตั้งใจ**ไม่บังคับเปลี่ยนรหัสผ่าน**
+(`must_change_password: FALSE`) เพื่อให้ login ทดสอบได้ทันทีไม่มี friction เพิ่ม — แต่ยังต้องผ่าน 2FA
+setup บังคับเหมือนบัญชีอื่นทุกบัญชี (ไม่มีทางลัดตรงนี้ ต่อให้เป็นบัญชีทดสอบก็ตาม) ลบ/เปลี่ยนบัญชีนี้ก่อน
+deploy จริงเสมอ
 
 ## สิ่งที่ตั้งใจไม่ทำ (scope ที่ตัดออกเพื่อความง่าย)
 
@@ -364,6 +374,31 @@ SSR (`svelte/server`) และไม่มีการใช้ `{@html ...}` �
 "hardcoded secret"/"bcrypt hash detected" — ค่านี้ไม่ใช่ credential จริง เป็น hash คงที่ที่ตั้งใจ hardcode
 ไว้เพื่อให้ timing ของ `bcrypt.compare` เท่ากันทุก path (ดูหัวข้อ timing attack ด้านบน) เปิดเผยค่านี้ไม่ทำให้
 ใครเข้าระบบได้ เพราะไม่ผูกกับ user จริงคนไหนเลย
+
+### รอบ 3 (เพิ่ม Trivy image scanning เข้า CI) — แก้แล้วทุกจุดที่แก้ได้จริง
+
+| จุดที่เจอ | เครื่องมือที่เจอ | การแก้ |
+|---|---|---|
+| `libssl3`/`libcrypto3` (OpenSSL) ของ Alpine base image เก่ากว่า patch ล่าสุด (`CVE-2026-45447`) | Trivy | เพิ่ม `RUN apk update && apk upgrade --no-cache` ในทั้ง 2 Dockerfile ให้ดึง OS package security patch ล่าสุดตอน build เสมอ |
+
+**False positive ที่ตรวจแล้วไม่ใช่ปัญหา** (ยืนยันด้วยการเปิดเข้าไปดูใน image จริง ไม่ใช่เดา):
+
+- npm CLI มี dependency ของตัวเอง (`tar`, `glob`, `minimatch`, `cross-spawn`, `sigstore`, ...) อยู่ใต้
+  `/usr/local/lib/node_modules/npm/node_modules/` — เป็นของ npm ใช้ตอนติดตั้ง package เท่านั้น ไม่ใช่
+  ของแอปเรา (แอปอยู่ที่ `/app/node_modules`) และไม่ถูกเรียกใช้ตอน container รันจริง (`npm run dev`
+  แค่ spawn nodemon ไม่แตะ path การติดตั้ง/แตกไฟล์ที่ CVE พวกนี้อยู่) → ตัดออกจากการสแกนด้วย
+  `--skip-dirs` ใน `ci.yml` แทนการ ignore เป็นราย CVE เพราะ base image จะมี CVE ใหม่ในกลุ่มนี้โผล่มา
+  เรื่อย ๆ ทุกครั้งที่อัปเดต
+- `esbuild` (dependency ของ Vite) เป็น binary compile จาก Go — Trivy อ่าน Go stdlib module ที่ฝังอยู่
+  ในตัว binary ได้ เจอ CVE ของ `net`/`net/http`/`net/mail` ของ Go ทั้งที่ esbuild ใช้แค่แปลงไฟล์ source
+  ของเราเองในเครื่อง ไม่เปิด network service ที่ exercise code path พวกนั้นเลย → ตัดออกด้วย
+  `--skip-files` เฉพาะ path ของ binary นั้น
+- `vite` (dependency จริงของเรา) มี `CVE-2026-53571` (`server.fs.deny` bypass ผ่าน Windows alternate
+  path) — exploit ต้องอาศัย Vite dev server รันบน Windows filesystem แต่ container นี้รันบน Linux
+  เสมอไม่ว่า host จะเป็น OS ไหน จึงไม่มี code path ที่ exploit ได้จริงในการรันแบบนี้ (แก้ตรงจริง ๆ ต้อง
+  major upgrade เป็น Vite 6+ ซึ่งต้องใช้ Svelte 5 — ติด constraint เดียวกับ esbuild/Svelte SSR ที่บันทึก
+  ไว้ในรอบ 1) → บันทึกไว้ใน [frontend/.trivyignore](frontend/.trivyignore) พร้อมเหตุผลกำกับ ไม่ใช่ปล่อย
+  เงียบ ๆ
 
 ## การทดสอบที่ทำไปแล้ว
 

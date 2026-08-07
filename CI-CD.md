@@ -17,10 +17,12 @@ flowchart TD
     CI --> Audit["npm audit<br/>(backend + frontend)"]
     CI --> Scan["Semgrep security scan<br/>(ทั้ง repo)"]
     CI --> Build["docker compose build<br/>(ทั้ง 2 image)"]
+    Build --> ImageScan["Trivy image scan<br/>(backend + frontend image ที่ build เสร็จ)"]
     Build --> Smoke["Smoke test แบบ end-to-end<br/>(scripts/smoke-test.sh ผ่าน docker compose)"]
 
     Audit --> Gate{"ทุก job ผ่านหรือไม่?"}
     Scan --> Gate
+    ImageScan --> Gate
     Smoke --> Gate
 
     Gate -->|ผ่าน| Merge["Merge เข้า main"]
@@ -36,17 +38,42 @@ flowchart TD
 ## CI — ตรวจสอบอัตโนมัติทุก push/PR
 
 Implementation จริงอยู่ที่ [.github/workflows/ci.yml](.github/workflows/ci.yml) รันทุกครั้งที่ push เข้า
-`main` หรือเปิด Pull Request มี 4 job ที่ต้องผ่านทั้งหมด:
+`main` หรือเปิด Pull Request มี 5 job ที่ต้องผ่านทั้งหมด:
 
 | Job | ทำอะไร | ทำไมต้องมี |
 |---|---|---|
 | `audit` | `npm audit --audit-level=high` ทั้ง `backend/` และ `frontend/` (แยก job ด้วย matrix) | จับ dependency ที่มีช่องโหว่รู้จักแล้วก่อนที่จะหลุดเข้า image |
 | `security-scan` | รัน [Semgrep](https://semgrep.dev) (ผ่าน Docker image `semgrep/semgrep`) ด้วย ruleset `p/security-audit`, `p/secrets`, `p/javascript`, `p/nodejsscan` แล้ว `--error` (fail ถ้าเจอ finding) | จับ pattern ที่เป็นช่องโหว่จริง เช่น GCM ที่ไม่ pin auth tag length, secret ที่ hardcode ในโค้ด — วิธีเดียวกับที่ใช้ตรวจโปรเจกต์นี้จริงตอนพัฒนา (ดู [CLAUDE.md](CLAUDE.md#ผลการสแกนความปลอดภัย)) |
 | `build` | `docker compose build` — build ทั้ง backend และ frontend image | กัน Dockerfile พังแบบไม่มีใครรู้จนกว่าจะ deploy จริง |
+| `image-scan` | รัน [Trivy](https://trivy.dev) (ผ่าน [aquasecurity/trivy-action](https://github.com/aquasecurity/trivy-action)) สแกน image ที่ build เสร็จของทั้ง backend/frontend หา CRITICAL/HIGH ที่มี fix แล้ว | `audit`/`security-scan` ดูแค่ source กับ `package.json` — ไม่เห็นช่องโหว่ที่มาจาก OS package ของ base image (เช่น `libssl`/`libcrypto` ของ Alpine) หรือ dependency ที่ resolve จริงตอน build เท่านั้นที่ image scan เห็น |
 | `smoke-test` | `docker compose up -d --build` แล้วรัน [scripts/smoke-test.sh](scripts/smoke-test.sh) ยิง API จริงทั้ง flow: login บังคับ 2FA setup → ยืนยันโค้ด TOTP → ได้ backup codes → เปลี่ยนรหัสผ่าน → admin สร้าง user → RBAC ปฏิเสธ user ธรรมดาที่เรียก `/admin/users` (403) → logout แล้ว `/me` เป็น 401 | Unit test ไม่พอสำหรับระบบที่หัวใจคือ "สถานะไหลผ่าน service หลายตัว" (login → 2FA → session → RBAC) — smoke test นี้คือชุดเดียวกับที่ยืนยัน flow ทั้งหมดด้วยมือตอนพัฒนาฟีเจอร์ 2FA/RBAC/SSO ครั้งแรก แปลงเป็น script ที่รันซ้ำได้ |
 
-ทั้ง 4 job รันพร้อมกัน (ไม่ block กันเอง) ยกเว้น `smoke-test` ที่รอ `build` ผ่านก่อน (ไม่มีประโยชน์จะรัน
-สแตกที่ build ไม่ผ่าน) PR จะ merge ได้ก็ต่อเมื่อทุก job เขียวหมด — ไม่มี job ไหนเป็น "optional"
+ทั้ง 5 job รันพร้อมกัน (ไม่ block กันเอง) ยกเว้น `image-scan`/`smoke-test` ที่รอ `build` ผ่านก่อน (ไม่มี
+ประโยชน์จะสแกน/รันสแตกที่ build ไม่ผ่าน) PR จะ merge ได้ก็ต่อเมื่อทุก job เขียวหมด — ไม่มี job ไหนเป็น
+"optional"
+
+### Trivy เจอ noise จาก base image เยอะ — จัดการยังไง
+
+Scan image ทั้งใบเจอช่องโหว่ที่ไม่เกี่ยวกับแอปเราเลยด้วย 2 กลุ่ม (verify แล้วจริงตอนพัฒนา ไม่ใช่เดา):
+
+1. **npm CLI เองมี dependency ของตัวเอง** (`tar`, `glob`, `minimatch`, ...) อยู่ใต้
+   `/usr/local/lib/node_modules/npm/node_modules/` — เป็น dependency ของ npm ตอนติดตั้ง package
+   ไม่ใช่ของแอปเรา (แอปเราอยู่ที่ `/app/node_modules`) และไม่ถูกเรียกใช้ตอน container รันจริงเลย
+   → ใช้ `skip-dirs` ตัด path นี้ออกจากการสแกนไปเลย (ไม่ไล่ ignore เป็นราย CVE เพราะจะโผล่ CVE ใหม่
+   เรื่อย ๆ ทุกครั้งที่ base image อัปเดต)
+2. **esbuild** (dependency ของ Vite) เป็น binary ที่ compile จาก Go — Trivy เห็น Go stdlib module
+   ที่ฝังอยู่ในตัว binary แล้วเจอ CVE ของ `net`/`net/http`/`net/mail` ของ Go ทั้งที่ไม่เกี่ยวกับแอปเรา
+   เลย (esbuild ใช้แปลงไฟล์ source ของเราเองในเครื่อง ไม่เปิด network service ที่ exercise
+   code path พวกนั้น) → ใช้ `skip-files` ตัด binary path ออก
+3. **`vite` เอง** (dependency จริงของเรา) มี CVE หนึ่งตัว (`server.fs.deny` bypass ผ่าน Windows
+   alternate path) ที่ fix ต้องขึ้น Vite 6+ ซึ่งต้องใช้ Svelte 5 (ติด constraint เดียวกับที่บันทึกไว้ใน
+   [CLAUDE.md](CLAUDE.md#ผลการสแกนความปลอดภัย) เรื่อง esbuild/Svelte SSR) — exploit ต้องรันบน
+   Windows filesystem แต่ container เรารันบน Linux เสมอไม่ว่า host จะเป็น OS ไหน จึงไม่มี code path
+   ที่ exploit ได้จริง → ใส่ไว้ใน [frontend/.trivyignore](frontend/.trivyignore) พร้อมเหตุผลกำกับ
+
+ส่วนที่ Trivy จับได้จริงและแก้แล้ว: **OpenSSL (`libssl`/`libcrypto`) ของ Alpine base image เก่ากว่า
+patch ล่าสุด** — เพิ่ม `RUN apk update && apk upgrade --no-cache` ในทั้ง 2 Dockerfile ให้ดึง OS package
+security patch ล่าสุดตอน build เสมอ ไม่พึ่งแค่เวอร์ชันที่ฝังมากับ base image ตอนนั้น
 
 ### สแกน docker-compose.keycloak.yml ด้วยหรือไม่?
 
@@ -75,14 +102,27 @@ docker run --rm -v "$PWD:/src" semgrep/semgrep \
 # 3) build
 docker compose build
 
-# 4) smoke test แบบเต็ม
+# 4) image scan (ใช้ Docker, ไม่ต้องติดตั้ง trivy เอง)
+docker build -t 2fa-example-backend:scan ./backend
+docker build -t 2fa-example-frontend:scan ./frontend
+docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:latest image \
+  --severity CRITICAL,HIGH --ignore-unfixed \
+  --skip-dirs /usr/local/lib/node_modules/npm 2fa-example-backend:scan
+docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD/frontend/.trivyignore:/tmp/.trivyignore" aquasec/trivy:latest image \
+  --severity CRITICAL,HIGH --ignore-unfixed --ignorefile /tmp/.trivyignore \
+  --skip-dirs /usr/local/lib/node_modules/npm \
+  --skip-files /app/node_modules/esbuild/bin/esbuild \
+  --skip-files /app/node_modules/@esbuild/linux-x64/bin/esbuild \
+  2fa-example-frontend:scan
+
+# 5) smoke test แบบเต็ม
 bash scripts/generate-secrets.sh   # ถ้ายังไม่มี .env
 docker compose up -d --build
 bash scripts/smoke-test.sh
 docker compose down -v
 ```
 
-ถ้า 4 ขั้นตอนนี้ผ่านบนเครื่องตัวเอง CI แทบไม่มีทางไม่ผ่าน (เป็น environment เดียวกัน คือ Docker)
+ถ้า 5 ขั้นตอนนี้ผ่านบนเครื่องตัวเอง CI แทบไม่มีทางไม่ผ่าน (เป็น environment เดียวกัน คือ Docker)
 
 ## CD — publish image ตอน release
 
@@ -141,4 +181,3 @@ Dockerfile/เปลี่ยน endpoint ต้องอัปเดต `script
   Playwright กรอกฟอร์ม login ของ Keycloak จริง)
 - เพิ่ม staging environment: deploy image ที่ build จาก `main` ไปที่ staging อัตโนมัติทุกครั้งที่ merge
   ก่อนจะ tag เป็น release จริง
-- เพิ่ม container image scanning (เช่น Trivy) สแกนตัว image ที่ build เสร็จ ไม่ใช่แค่ source code

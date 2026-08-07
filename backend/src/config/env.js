@@ -44,6 +44,15 @@ const schema = z.object({
   ADMIN_EMAIL: z.string().email(),
   ADMIN_PASSWORD: z.string().min(8),
   ADMIN_FULL_NAME: z.string().default('System Administrator'),
+
+  // Seeded alongside the admin account purely so there's a ready-made plain
+  // "user" role login for testing/demoing RBAC without having to create one
+  // by hand first. Has a default (unlike ADMIN_EMAIL/PASSWORD, which are
+  // required with no default) since this account is a convenience, not a
+  // required bootstrap step - remove/change it before any real deployment.
+  TEST_USER_EMAIL: z.string().email().default('user@example.com'),
+  TEST_USER_PASSWORD: z.string().min(8).default('UserTest123'),
+  TEST_USER_FULL_NAME: z.string().default('Test User'),
 });
 
 const parsed = schema.safeParse(process.env);

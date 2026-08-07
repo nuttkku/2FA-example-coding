@@ -24,6 +24,7 @@ Facebook / LINE / Keycloak / OpenID Connect ทั่วไป — เขีย�
 - [ความปลอดภัย: สแกนและ CI/CD](#-ความปลอดภัย-สแกนและ-cicd)
 - [ข้อจำกัดที่ตั้งใจไว้](#-ข้อจำกัดที่ตั้งใจไว้)
 - [แนวทางต่อยอด](#-แนวทางต่อยอด)
+- [Credits](#-credits)
 
 ## 🛠 เทคโนโลยีที่ใช้
 
@@ -116,15 +117,26 @@ docker compose -f docker-compose.yml -f docker-compose.keycloak.yml up -d --buil
 
 **4. เปิดเว็บ**
 
-เปิด [http://localhost:5173](http://localhost:5173) แล้ว login ด้วยค่าใน `backend/.env`:
-`ADMIN_EMAIL` / `ADMIN_PASSWORD` — ระบบจะบังคับให้ตั้ง 2FA และเปลี่ยนรหัสผ่านทันทีตั้งแต่ครั้งแรกที่ login
+เปิด [http://localhost:5173](http://localhost:5173) — มีบัญชีให้ทดสอบพร้อมทั้ง 2 สิทธิ์ตั้งแต่ครั้งแรก
+ที่ start (seed ให้อัตโนมัติ ค่าเริ่มต้นมาจาก `backend/.env`):
+
+| สิทธิ์ | Email | รหัสผ่าน | หมายเหตุ |
+|---|---|---|---|
+| `admin` | `ADMIN_EMAIL` (default `admin@example.com`) | `ADMIN_PASSWORD` (default `change_me_immediately!1`) | ถูกบังคับเปลี่ยนรหัสผ่าน + ตั้ง 2FA ทันทีตั้งแต่ login ครั้งแรก |
+| `user` | `TEST_USER_EMAIL` (default `user@example.com`) | `TEST_USER_PASSWORD` (default `UserTest123`) | ไม่บังคับเปลี่ยนรหัสผ่าน แต่ยังต้องตั้ง 2FA เหมือนกันทุกบัญชี ใช้ทดสอบว่าเมนู/endpoint ที่ admin เท่านั้นเข้าได้ ถูกซ่อน/ปฏิเสธจริงสำหรับ role นี้ |
+
+ทั้ง 2 บัญชีต้องผ่าน 2FA setup บังคับก่อนถึงจะเข้าใช้งานได้ (ไม่มีทางลัด แม้เป็นบัญชีทดสอบ) — login ด้วย
+รหัสผ่านที่ตั้งไว้ ระบบจะบังคับให้ตั้ง 2FA และ (เฉพาะ `admin`) เปลี่ยนรหัสผ่านทันทีตั้งแต่ครั้งแรกที่ login
+
+> ⚠️ บัญชี `TEST_USER_*` มีไว้เพื่อความสะดวกในการทดสอบ/สาธิต RBAC เท่านั้น **ลบหรือเปลี่ยนรหัสผ่านก่อนนำไป
+> deploy จริงเสมอ**
 
 ### คำสั่งอื่น ๆ ที่มีประโยชน์
 
 ```bash
 docker compose logs -f backend    # ดู log ของ API
 docker compose down               # หยุดทุก service (เก็บข้อมูลใน DB ไว้)
-docker compose down -v            # หยุด + ล้างฐานข้อมูลทั้งหมด (รอบต่อไปจะ seed admin ใหม่)
+docker compose down -v            # หยุด + ล้างฐานข้อมูลทั้งหมด (รอบต่อไปจะ seed admin/test user ใหม่)
 bash scripts/smoke-test.sh        # ทดสอบ flow หลักทั้งหมดแบบอัตโนมัติ (ต้องมีสแตกรันอยู่ก่อน)
 ```
 
@@ -442,10 +454,12 @@ revoke (mark ในตาราง `refresh_tokens`) แล้วออกตั
 ├── scripts/
 │   ├── generate-secrets.sh      # สร้าง .env ทั้งหมด + generate secret ให้อัตโนมัติ
 │   └── smoke-test.sh            # ทดสอบ flow หลักทั้งหมดแบบ end-to-end (ใช้ใน CI ด้วย)
-├── .github/workflows/           # ci.yml (audit+scan+build+smoke test ทุก PR), cd.yml (publish image ตอน tag)
+├── .github/workflows/           # ci.yml (audit+scan+build+trivy+smoke test ทุก PR), cd.yml (publish image ตอน tag)
+├── CI-CD.md
+├── CREDIT.md                    # รายชื่อ open-source software/บริการที่ใช้ในโปรเจกต์
 ├── backend/
 │   ├── Dockerfile
-│   ├── .env.example            # JWT secret, TOTP key, admin bootstrap, SSO provider config ฯลฯ
+│   ├── .env.example            # JWT secret, TOTP key, admin/test user bootstrap, SSO provider config ฯลฯ
 │   └── src/
 │       ├── config/              env.js (validate ด้วย zod), db.js, permissions.js, identityProviders.js (SSO)
 │       ├── db/                  migrations/ (001_init, 002_add_sso), migrate.js, seed.js
@@ -457,6 +471,7 @@ revoke (mark ในตาราง `refresh_tokens`) แล้วออกตั
 └── frontend/
     ├── Dockerfile
     ├── .env.example
+    ├── .trivyignore             # CVE ที่ตรวจแล้วไม่มี code path ให้ exploit ได้จริงในการรันแบบนี้
     └── src/
         ├── lib/                 api.js, guards.js, stores/
         ├── pages/                1 ไฟล์ต่อ 1 หน้า (Login, Setup2FA, Verify2FA, AdminUsers, ...)
@@ -487,6 +502,7 @@ CI/CD อยู่ใน [CI-CD.md](CI-CD.md)
 | `COOKIE_SECURE` | ตั้ง `true` เฉพาะตอนรันผ่าน HTTPS จริง |
 | `LOGIN_MAX_ATTEMPTS` / `LOGIN_LOCK_MINUTES` | นโยบาย account lockout |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` / `ADMIN_FULL_NAME` | บัญชี admin ที่ seed ให้อัตโนมัติตอน start ครั้งแรก (ถูกบังคับเปลี่ยนรหัสผ่าน + ตั้ง 2FA ทันทีที่ login ครั้งแรก) |
+| `TEST_USER_EMAIL` / `TEST_USER_PASSWORD` / `TEST_USER_FULL_NAME` | บัญชี role `user` ที่ seed ให้อัตโนมัติเช่นกัน (มี default ในตัว ไม่บังคับตั้งเหมือน `ADMIN_*`) สำหรับทดสอบ RBAC ฝั่ง user ธรรมดาโดยไม่ต้องสร้างมือ — ลบ/เปลี่ยนก่อน deploy จริง |
 | `FACEBOOK_ENABLED` / `FACEBOOK_CLIENT_ID` / `FACEBOOK_CLIENT_SECRET` | เปิด Facebook Login (ดูวิธีขอมาที่หัวข้อ [SSO / OIDC](#-sso--oidc-facebook-line-keycloak)) |
 | `LINE_ENABLED` / `LINE_CLIENT_ID` / `LINE_CLIENT_SECRET` | เปิด LINE Login |
 | `KEYCLOAK_ENABLED` / `KEYCLOAK_ISSUER_URL` / `KEYCLOAK_CLIENT_ID` / `KEYCLOAK_CLIENT_SECRET` | เปิด Keycloak (มี `KEYCLOAK_PUBLIC_ISSUER_URL`/`KEYCLOAK_ALLOW_INSECURE` เพิ่มเติมสำหรับ setup แบบ docker-compose ในเครื่อง) |
@@ -579,7 +595,12 @@ smoke test แบบ end-to-end ([scripts/smoke-test.sh](scripts/smoke-test.sh))
   ของ provider นั้น)
 - เพิ่ม automated smoke test สำหรับ Keycloak variant ด้วย headless browser (Playwright) ให้ CI ครอบคลุม
   ทั้ง 2 docker-compose variant
-- เพิ่ม Dependabot + container image scanning (Trivy) ต่อจาก pipeline ที่มีอยู่ใน [CI-CD.md](CI-CD.md)
+- เพิ่ม Dependabot ต่อจาก pipeline ที่มีอยู่ใน [CI-CD.md](CI-CD.md) (container image scanning ด้วย
+  Trivy มีอยู่แล้ว)
+
+## 🙏 Credits
+
+รายชื่อ open-source software/บริการทั้งหมดที่ใช้ในโปรเจกต์นี้ อยู่ใน [CREDIT.md](CREDIT.md)
 
 ## License
 

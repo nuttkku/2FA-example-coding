@@ -1,0 +1,9 @@
+# CVE-2026-53571: vite server.fs.deny bypass via Windows alternate paths.
+# The bypass requires the Vite dev server process itself to run on a Windows
+# filesystem (NTFS short-name/alternate-path quirks) to defeat the deny-list.
+# This app's Vite dev server always runs inside a Linux container (see
+# frontend/Dockerfile) regardless of the developer's host OS, so this specific
+# bypass vector has no reachable code path here. A real fix needs Vite 6+,
+# which needs Svelte 5 - the same already-accepted, tracked-as-a-follow-up
+# limitation documented in CLAUDE.md for the esbuild/Svelte SSR advisories.
+CVE-2026-53571
