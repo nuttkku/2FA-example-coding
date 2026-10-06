@@ -56,7 +56,8 @@
 | [Semgrep](https://semgrep.dev) (ruleset `p/security-audit`, `p/secrets`, `p/javascript`, `p/nodejsscan`) | Static analysis หา pattern ที่เป็นช่องโหว่ในโค้ด |
 | [Trivy](https://trivy.dev) (Aqua Security) | สแกนช่องโหว่ของ container image ที่ build เสร็จ (OS package + dependency) |
 | [Snyk](https://snyk.io) | สแกน dependency ผ่าน GitHub integration แล้วเปิด PR แก้ช่องโหว่ให้อัตโนมัติ |
-| [GitHub Actions](https://github.com/features/actions) | รัน CI (audit/scan/build/smoke test) และ CD (publish image) |
+| [Playwright](https://playwright.dev) (Microsoft) | ขับ browser (Chromium) ทดสอบหน้าเว็บจริงแบบ end-to-end (`e2e/ui-test.mjs`) |
+| [GitHub Actions](https://github.com/features/actions) | รัน CI (audit/scan/build/smoke test/UI test) และ CD (publish image) |
 | [GitHub Container Registry (GHCR)](https://ghcr.io) | เก็บ image ที่ publish จาก CD pipeline |
 
 ## GitHub Actions ที่ใช้ใน workflow

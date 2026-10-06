@@ -11,7 +11,8 @@
 >    --config p/secrets --config p/javascript --config p/nodejsscan --exclude node_modules
 >    --exclude "*.md" /src`) แล้วพิจารณา finding ทุกอันอย่างจริงจังก่อนตัดสินว่าเป็น false positive
 > 3. ถ้า flow ใหม่กระทบ login/2FA/RBAC ให้เพิ่ม assertion ใน [scripts/smoke-test.sh](scripts/smoke-test.sh)
->    ด้วย ไม่ใช่แค่ทดสอบมือแล้วปล่อยผ่าน — สคริปต์นี้คือ regression test ตัวเดียวที่ CI มี
+>    (ระดับ API) และ/หรือ [e2e/ui-test.mjs](e2e/ui-test.mjs) (ผ่านหน้าเว็บจริงด้วย Playwright) ด้วย ไม่ใช่แค่
+>    ทดสอบมือแล้วปล่อยผ่าน — สองตัวนี้คือ regression test ที่ CI มี
 > 4. **อัปเดตไฟล์นี้ (CLAUDE.md)** ด้วยการตัดสินใจ/เหตุผลใหม่ที่เกิดขึ้น และอัปเดต [README.md](README.md)
 >    ถ้ากระทบสิ่งที่ผู้ใช้เห็น (ขั้นตอนติดตั้ง/ตัวแปร env/API/flow) แล้ว commit + push เสมอ — นี่คือ
 >    ข้อตกลงถาวรของโปรเจกต์นี้ ไม่ต้องรอให้สั่งซ้ำทุกครั้ง
@@ -333,6 +334,7 @@ docker compose down                # หยุด (เก็บ data ไว้) 
 docker compose down -v             # หยุด + ลบ volume postgres (รีเซ็ตฐานข้อมูลทั้งหมด)
 
 bash scripts/smoke-test.sh         # ยิง API จริงทดสอบ flow หลักทั้งหมด (ต้อง up -d ไว้ก่อน)
+(cd e2e && npm ci && npx playwright install chromium && node ui-test.mjs)   # ทดสอบผ่านหน้าเว็บจริง (ต้องใช้ DB ใหม่: down -v แล้ว up ก่อน)
 ```
 
 ไม่มี migration/seed command ที่ต้องรันแยกมือ — `backend/src/server.js` เรียก `runMigrations()`
@@ -518,6 +520,13 @@ Build และรันผ่าน `docker compose` จริงบน Docker 
   secret) → backup codes 10 ชุด → บังคับเปลี่ยนรหัสผ่าน → dashboard → หน้า users (สร้าง user ผ่าน modal) →
   audit log → profile → logout → user ใหม่ทำ flow เดียวกัน → RBAC guard ส่งไป `/unauthorized` — ไม่มี JS error
   ในหน้าเว็บ (มีแค่ 401 ของ `/auth/me` ตอนยังไม่ login กับ 404 ของ `/favicon.ico` ซึ่งเป็นแบบนี้อยู่แล้ว)
+- **`e2e/ui-test.mjs` (Playwright) อยู่ใน CI แล้ว** (job `ui-test`) — ขับ UI จริงผ่าน Vite proxy ครบ flow: guard,
+  ข้อความ error ของ SSO, forced setup/password change, หน้า users (modal: role dialog/backdrop/Escape, สร้าง, ค้นหา,
+  เปลี่ยน role, disable/enable, reset 2FA, reset password 20 ครั้ง), audit log, step-up regenerate, verify ด้วย
+  backup code, RBAC ของ user ธรรมดา และไม่มี browser error ที่ไม่คาดไว้ ต้องใช้ฐานข้อมูลใหม่ (ทำ first login ของ
+  bootstrap admin) จึงเป็น job แยกจาก `smoke-test` ที่มี stack ของตัวเอง ที่ต้องมีเพราะ bug ฝั่ง frontend อย่าง
+  temporary password ที่ fail แบบสุ่ม ~16% (เจอจาก Playwright ในรอบ 4) smoke test ระดับ API มองไม่เห็นเลย —
+  ยืนยันแล้วว่าถ้าใส่ generator ตัวเก่ากลับไป test นี้ fail
 - ทุก Svelte component ยืนยันแล้วว่า compile ผ่าน Vite ได้ไม่มี error (`curl` แต่ละไฟล์ได้ HTTP 200)
 
 ทดสอบ SSO/Keycloak แบบ end-to-end จริงด้วย `curl` (จำลอง browser: ตาม redirect, submit ฟอร์ม login ของ

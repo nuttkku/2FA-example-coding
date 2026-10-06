@@ -140,6 +140,7 @@ docker compose logs -f backend    # ดู log ของ API
 docker compose down               # หยุดทุก service (เก็บข้อมูลใน DB ไว้)
 docker compose down -v            # หยุด + ล้างฐานข้อมูลทั้งหมด (รอบต่อไปจะ seed admin/test user ใหม่)
 bash scripts/smoke-test.sh        # ทดสอบ flow หลักทั้งหมดแบบอัตโนมัติ (ต้องมีสแตกรันอยู่ก่อน)
+(cd e2e && npm ci && npx playwright install chromium && node ui-test.mjs)  # ทดสอบผ่านหน้าเว็บจริง (ใช้ DB ใหม่)
 ```
 
 > ถ้ารันแบบมี Keycloak ต้องใส่ `-f docker-compose.yml -f docker-compose.keycloak.yml` ทุกคำสั่ง
@@ -466,8 +467,9 @@ revoke (mark ในตาราง `refresh_tokens`) แล้วออกตั
 ├── .env.example                 # ตัวแปรระดับ infra (DB credential, ports)
 ├── scripts/
 │   ├── generate-secrets.sh      # สร้าง .env ทั้งหมด + generate secret ให้อัตโนมัติ
-│   └── smoke-test.sh            # ทดสอบ flow หลักทั้งหมดแบบ end-to-end (ใช้ใน CI ด้วย)
-├── .github/workflows/           # ci.yml (audit+scan+build+trivy+smoke test ทุก PR), cd.yml (publish image ตอน tag)
+│   └── smoke-test.sh            # ทดสอบ flow หลักทั้งหมดแบบ end-to-end ระดับ API (ใช้ใน CI ด้วย)
+├── e2e/ui-test.mjs              # ทดสอบผ่านหน้าเว็บจริงด้วย Playwright (ใช้ใน CI ด้วย)
+├── .github/workflows/           # ci.yml (audit+scan+build+trivy+smoke test+UI test ทุก PR), cd.yml (publish image ตอน tag)
 ├── CI-CD.md
 ├── CREDIT.md                    # รายชื่อ open-source software/บริการที่ใช้ในโปรเจกต์
 ├── backend/
@@ -576,7 +578,7 @@ PR แก้ dependency ให้อัตโนมัติ) และ manual r
 
 กระบวนการพัฒนา/ตรวจสอบอัตโนมัติ (CI) ทุก push/PR และ publish image (CD) ตอน release ออกแบบไว้ละเอียดที่
 [CI-CD.md](CI-CD.md) — สรุปสั้น ๆ: ทุก PR ต้องผ่าน `npm audit`, Semgrep scan, `docker compose build`, และ
-smoke test แบบ end-to-end ([scripts/smoke-test.sh](scripts/smoke-test.sh)) ก่อน merge ได้
+smoke test แบบ end-to-end ([scripts/smoke-test.sh](scripts/smoke-test.sh)) และ UI test ผ่าน browser ([e2e/ui-test.mjs](e2e/ui-test.mjs)) ก่อน merge ได้
 
 ## 🧱 ข้อจำกัดที่ตั้งใจไว้
 

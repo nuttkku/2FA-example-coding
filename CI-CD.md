@@ -19,11 +19,13 @@ flowchart TD
     CI --> Build["docker compose build<br/>(ทั้ง 2 image)"]
     Build --> ImageScan["Trivy image scan<br/>(backend + frontend image ที่ build เสร็จ)"]
     Build --> Smoke["Smoke test แบบ end-to-end<br/>(scripts/smoke-test.sh ผ่าน docker compose)"]
+    Build --> UI["Browser UI test<br/>(e2e/ui-test.mjs ด้วย Playwright)"]
 
     Audit --> Gate{"ทุก job ผ่านหรือไม่?"}
     Scan --> Gate
     ImageScan --> Gate
     Smoke --> Gate
+    UI --> Gate
 
     Gate -->|ผ่าน| Merge["Merge เข้า main"]
     Gate -->|ไม่ผ่าน| Fix["แก้ไขแล้ว push ใหม่"]
@@ -38,17 +40,18 @@ flowchart TD
 ## CI — ตรวจสอบอัตโนมัติทุก push/PR
 
 Implementation จริงอยู่ที่ [.github/workflows/ci.yml](.github/workflows/ci.yml) รันทุกครั้งที่ push เข้า
-`main` หรือเปิด Pull Request มี 5 job ที่ต้องผ่านทั้งหมด:
+`main` หรือเปิด Pull Request มี 6 job ที่ต้องผ่านทั้งหมด:
 
 | Job | ทำอะไร | ทำไมต้องมี |
 |---|---|---|
-| `audit` | `npm audit --audit-level=high` ทั้ง `backend/` และ `frontend/` (แยก job ด้วย matrix) | จับ dependency ที่มีช่องโหว่รู้จักแล้วก่อนที่จะหลุดเข้า image |
+| `audit` | `npm audit --audit-level=high` ทั้ง `backend/`, `frontend/` และ `e2e/` (แยก job ด้วย matrix, `fail-fast: false` ให้เห็นผลครบทุกตัว) | จับ dependency ที่มีช่องโหว่รู้จักแล้วก่อนที่จะหลุดเข้า image |
 | `security-scan` | รัน [Semgrep](https://semgrep.dev) (ผ่าน Docker image `semgrep/semgrep`) ด้วย ruleset `p/security-audit`, `p/secrets`, `p/javascript`, `p/nodejsscan` แล้ว `--error` (fail ถ้าเจอ finding) | จับ pattern ที่เป็นช่องโหว่จริง เช่น GCM ที่ไม่ pin auth tag length, secret ที่ hardcode ในโค้ด — วิธีเดียวกับที่ใช้ตรวจโปรเจกต์นี้จริงตอนพัฒนา (ดู [CLAUDE.md](CLAUDE.md#ผลการสแกนความปลอดภัย)) |
 | `build` | `docker compose build` — build ทั้ง backend และ frontend image | กัน Dockerfile พังแบบไม่มีใครรู้จนกว่าจะ deploy จริง |
 | `image-scan` | รัน [Trivy](https://trivy.dev) (ผ่าน [aquasecurity/trivy-action](https://github.com/aquasecurity/trivy-action)) สแกน image ที่ build เสร็จของทั้ง backend/frontend หา CRITICAL/HIGH ที่มี fix แล้ว | `audit`/`security-scan` ดูแค่ source กับ `package.json` — ไม่เห็นช่องโหว่ที่มาจาก OS package ของ base image (เช่น `libssl`/`libcrypto` ของ Alpine) หรือ dependency ที่ resolve จริงตอน build เท่านั้นที่ image scan เห็น |
 | `smoke-test` | `docker compose up -d --build` แล้วรัน [scripts/smoke-test.sh](scripts/smoke-test.sh) ยิง API จริงทั้ง flow: login บังคับ 2FA setup → ยืนยันโค้ด TOTP → ได้ backup codes → เปลี่ยนรหัสผ่าน (session เก่าถูก revoke) → refresh token ที่ rotate แล้วใช้ซ้ำถูกปฏิเสธและ revoke ทั้ง family → โค้ด TOTP ที่ใช้แล้วใช้ซ้ำไม่ได้ → backup code ใช้ได้ครั้งเดียว → admin สร้าง user → RBAC ปฏิเสธ user ธรรมดาที่เรียก `/admin/users` (403) → logout แล้ว `/me` เป็น 401 → ใส่โค้ด 2FA ผิด 5 ครั้งแล้วบัญชีถูกล็อก 2FA (403) | Unit test ไม่พอสำหรับระบบที่หัวใจคือ "สถานะไหลผ่าน service หลายตัว" (login → 2FA → session → RBAC) — smoke test นี้คือชุดเดียวกับที่ยืนยัน flow ทั้งหมดด้วยมือตอนพัฒนาฟีเจอร์ 2FA/RBAC/SSO ครั้งแรก แปลงเป็น script ที่รันซ้ำได้ |
+| `ui-test` | `docker compose up -d --build` แยกอีกชุด แล้วรัน [e2e/ui-test.mjs](e2e/ui-test.mjs) ด้วย Playwright (Chromium) กดหน้าเว็บจริงผ่าน Vite proxy: guard, forced 2FA setup/เปลี่ยนรหัส, หน้า admin (modal/สร้าง/ค้นหา/เปลี่ยน role/disable/reset), audit log, step-up regenerate backup codes, verify ด้วย backup code, RBAC ของ user ธรรมดา และไม่มี browser error | smoke test ยิงแค่ API — มองไม่เห็น bug ฝั่ง frontend (routing, form, modal, การคุยกับ backend จริงของหน้าเว็บ) ใช้ stack แยกเพราะต้องทำ first login ของ bootstrap admin บนฐานข้อมูลใหม่ |
 
-ทั้ง 5 job รันพร้อมกัน (ไม่ block กันเอง) ยกเว้น `image-scan`/`smoke-test` ที่รอ `build` ผ่านก่อน (ไม่มี
+ทั้ง 6 job รันพร้อมกัน (ไม่ block กันเอง) ยกเว้น `image-scan`/`smoke-test`/`ui-test` ที่รอ `build` ผ่านก่อน (ไม่มี
 ประโยชน์จะสแกน/รันสแตกที่ build ไม่ผ่าน) PR จะ merge ได้ก็ต่อเมื่อทุก job เขียวหมด — ไม่มี job ไหนเป็น
 "optional"
 
@@ -112,9 +115,14 @@ bash scripts/generate-secrets.sh   # ถ้ายังไม่มี .env
 docker compose up -d --build
 bash scripts/smoke-test.sh
 docker compose down -v
+
+# 6) UI test ผ่าน browser (ต้องใช้ฐานข้อมูลใหม่อีกรอบ)
+docker compose up -d --build
+(cd e2e && npm ci && npx playwright install chromium && node ui-test.mjs)
+docker compose down -v
 ```
 
-ถ้า 5 ขั้นตอนนี้ผ่านบนเครื่องตัวเอง CI แทบไม่มีทางไม่ผ่าน (เป็น environment เดียวกัน คือ Docker)
+ถ้า 6 ขั้นตอนนี้ผ่านบนเครื่องตัวเอง CI แทบไม่มีทางไม่ผ่าน (เป็น environment เดียวกัน คือ Docker)
 
 ## CD — publish image ตอน release
 
@@ -177,7 +185,7 @@ Snyk สแกน `package.json`/`package-lock.json` แล้วเปิด PR
 Requirement ของโปรเจกต์นี้ระบุไว้ชัดว่าทุกครั้งที่แก้ไข feature ต้องทำตามกระบวนการ CI/CD ที่ออกแบบไว้ —
 [CLAUDE.md](CLAUDE.md) จึงมีคำสั่งให้อ่านไฟล์นี้ก่อนเริ่มงานทุกครั้ง เพื่อให้ (1) รู้ว่าต้องรัน check อะไร
 ก่อน push (หัวข้อ "รันเหมือน CI บนเครื่องตัวเอง" ด้านบน) และ (2) รู้ว่าถ้าเพิ่ม dependency ใหม่/แก้
-Dockerfile/เปลี่ยน endpoint ต้องอัปเดต `scripts/smoke-test.sh` ให้ครอบคลุม flow ใหม่ด้วยหรือไม่ ไม่ใช่แค่
+Dockerfile/เปลี่ยน endpoint/เปลี่ยนหน้าเว็บ ต้องอัปเดต `scripts/smoke-test.sh` หรือ `e2e/ui-test.mjs` ให้ครอบคลุม flow ใหม่ด้วยหรือไม่ ไม่ใช่แค่
 เขียนโค้ดเสร็จแล้วจบ
 
 ## แนวทางต่อยอด CI/CD
