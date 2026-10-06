@@ -21,11 +21,17 @@
 
   const isAdmin = $derived($authStore.user?.role === 'admin');
 
+  // The backend requires a letter AND a digit. 12 random chars from this
+  // alphabet contain no digit roughly 16% of the time, which used to make
+  // "create user"/"reset password" fail at random - so redraw until it has one.
   function generateTempPassword() {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
-    const bytes = crypto.getRandomValues(new Uint32Array(12));
-    let result = 'Temp-';
-    bytes.forEach((n) => (result += chars[n % chars.length]));
+    let result;
+    do {
+      const bytes = crypto.getRandomValues(new Uint32Array(12));
+      result = 'Temp-';
+      bytes.forEach((n) => (result += chars[n % chars.length]));
+    } while (!/[0-9]/.test(result));
     return result;
   }
 
