@@ -7,6 +7,7 @@
 //   BASE_URL      default http://localhost:5173
 //   ADMIN_EMAIL / ADMIN_PASSWORD   default: the backend/.env.example values
 //   CHROMIUM_PATH optional - use an already-installed Chromium binary
+import { randomBytes } from 'node:crypto';
 import { chromium } from 'playwright';
 import otplib from 'otplib';
 
@@ -15,9 +16,12 @@ const { authenticator } = otplib;
 const BASE_URL = process.env.BASE_URL || 'http://localhost:5173';
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@example.com';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'change_me_immediately!1';
-const ADMIN_NEW_PASSWORD = 'UiTestPass123';
+// Passwords this run sets are random per run rather than literals in the
+// source: nothing credential-shaped is committed, and each run is independent.
+const randomPassword = () => `Ui-${randomBytes(12).toString('hex')}-9z`;
+const ADMIN_NEW_PASSWORD = randomPassword();
 const NEW_USER_EMAIL = `ui-user-${Date.now()}@example.com`;
-const NEW_USER_PASSWORD = 'UserPass12345';
+const NEW_USER_PASSWORD = randomPassword();
 
 const browser = await chromium.launch(
   process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {},
