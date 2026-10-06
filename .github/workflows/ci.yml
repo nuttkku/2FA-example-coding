@@ -64,14 +64,6 @@ jobs:
             skip_dirs: /usr/local/lib/node_modules/npm
           - service: frontend
             skip_dirs: /usr/local/lib/node_modules/npm
-            # esbuild's core is a compiled Go binary bundled into the npm
-            # package; Trivy detects the Go stdlib modules baked into it at
-            # esbuild's own build time. Excluded for the same reason as
-            # above - it's a bundler binary transforming our own trusted
-            # source files locally, not a network-facing service exercising
-            # those particular stdlib code paths.
-            skip_files: /app/node_modules/esbuild/bin/esbuild,/app/node_modules/@esbuild/linux-x64/bin/esbuild
-            trivyignores: frontend/.trivyignore
     steps:
       - uses: actions/checkout@v4
 
@@ -92,8 +84,6 @@ jobs:
           ignore-unfixed: true
           exit-code: "1"
           skip-dirs: ${{ matrix.skip_dirs }}
-          skip-files: ${{ matrix.skip_files }}
-          trivyignores: ${{ matrix.trivyignores }}
 
   smoke-test:
     name: End-to-end smoke test

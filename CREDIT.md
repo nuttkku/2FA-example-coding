@@ -35,7 +35,7 @@
 
 | Package | ใช้ทำอะไร |
 |---|---|
-| [Svelte](https://svelte.dev) 4 | UI framework |
+| [Svelte](https://svelte.dev) 5 | UI framework |
 | [Vite](https://vitejs.dev) | Dev server / build tool (รวมถึง dev proxy ไป backend) |
 | [@sveltejs/vite-plugin-svelte](https://github.com/sveltejs/vite-plugin-svelte) | ผนวก Svelte เข้ากับ Vite |
 | [svelte-spa-router](https://github.com/ItalyPaleAle/svelte-spa-router) | Client-side routing แบบ hash-based |

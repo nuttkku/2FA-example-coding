@@ -61,15 +61,10 @@ Scan image ทั้งใบเจอช่องโหว่ที่ไม่
    ไม่ใช่ของแอปเรา (แอปเราอยู่ที่ `/app/node_modules`) และไม่ถูกเรียกใช้ตอน container รันจริงเลย
    → ใช้ `skip-dirs` ตัด path นี้ออกจากการสแกนไปเลย (ไม่ไล่ ignore เป็นราย CVE เพราะจะโผล่ CVE ใหม่
    เรื่อย ๆ ทุกครั้งที่ base image อัปเดต)
-2. **esbuild** (dependency ของ Vite) เป็น binary ที่ compile จาก Go — Trivy เห็น Go stdlib module
-   ที่ฝังอยู่ในตัว binary แล้วเจอ CVE ของ `net`/`net/http`/`net/mail` ของ Go ทั้งที่ไม่เกี่ยวกับแอปเรา
-   เลย (esbuild ใช้แปลงไฟล์ source ของเราเองในเครื่อง ไม่เปิด network service ที่ exercise
-   code path พวกนั้น) → ใช้ `skip-files` ตัด binary path ออก
-3. **`vite` เอง** (dependency จริงของเรา) มี CVE หนึ่งตัว (`server.fs.deny` bypass ผ่าน Windows
-   alternate path) ที่ fix ต้องขึ้น Vite 6+ ซึ่งต้องใช้ Svelte 5 (ติด constraint เดียวกับที่บันทึกไว้ใน
-   [CLAUDE.md](CLAUDE.md#ผลการสแกนความปลอดภัย) เรื่อง esbuild/Svelte SSR) — exploit ต้องรันบน
-   Windows filesystem แต่ container เรารันบน Linux เสมอไม่ว่า host จะเป็น OS ไหน จึงไม่มี code path
-   ที่ exploit ได้จริง → ใส่ไว้ใน [frontend/.trivyignore](frontend/.trivyignore) พร้อมเหตุผลกำกับ
+
+(เดิมมีอีก 2 กลุ่ม: binary Go ของ `esbuild` ที่ต้อง `skip-files` และ CVE ของ `vite` ที่ต้องอยู่ใน
+`frontend/.trivyignore` — ทั้งคู่หมดไปแล้วตั้งแต่ย้ายเป็น Svelte 5 + Vite 8 ซึ่งใช้ rolldown แทน esbuild
+และแก้ CVE นั้นแล้ว จึงลบ exclusion ทั้งสองออก ดู [CLAUDE.md](CLAUDE.md#ผลการสแกนความปลอดภัย) รอบ 4)
 
 ส่วนที่ Trivy จับได้จริงและแก้แล้ว: **OpenSSL (`libssl`/`libcrypto`) ของ Alpine base image เก่ากว่า
 patch ล่าสุด** — เพิ่ม `RUN apk update && apk upgrade --no-cache` ในทั้ง 2 Dockerfile ให้ดึง OS package
@@ -108,12 +103,9 @@ docker build -t 2fa-example-frontend:scan ./frontend
 docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:latest image \
   --severity CRITICAL,HIGH --ignore-unfixed \
   --skip-dirs /usr/local/lib/node_modules/npm 2fa-example-backend:scan
-docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD/frontend/.trivyignore:/tmp/.trivyignore" aquasec/trivy:latest image \
-  --severity CRITICAL,HIGH --ignore-unfixed --ignorefile /tmp/.trivyignore \
-  --skip-dirs /usr/local/lib/node_modules/npm \
-  --skip-files /app/node_modules/esbuild/bin/esbuild \
-  --skip-files /app/node_modules/@esbuild/linux-x64/bin/esbuild \
-  2fa-example-frontend:scan
+docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:latest image \
+  --severity CRITICAL,HIGH --ignore-unfixed \
+  --skip-dirs /usr/local/lib/node_modules/npm 2fa-example-frontend:scan
 
 # 5) smoke test แบบเต็ม
 bash scripts/generate-secrets.sh   # ถ้ายังไม่มี .env

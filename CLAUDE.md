@@ -29,7 +29,7 @@
 - รันทั้งหมดผ่าน Docker Compose (PostgreSQL + Express backend + Svelte frontend) มีทั้งแบบมี Keycloak
   ในตัว (`docker-compose.keycloak.yml` เป็น addon) และแบบไม่มี (`docker-compose.yml` เพียวๆ)
 
-Stack: **Svelte 4 + Vite** (frontend) / **Node.js + Express** (backend) / **PostgreSQL 16** (database)
+Stack: **Svelte 5 + Vite 8** (frontend) / **Node.js + Express** (backend) / **PostgreSQL 16** (database)
 
 ดู [README.md](README.md) สำหรับคำอธิบายขั้นตอนการทำงานแบบละเอียด (ใช้เป็นแหล่งเรียนรู้) และวิธีรัน,
 ดู [CI-CD.md](CI-CD.md) สำหรับกระบวนการพัฒนา/ตรวจสอบอัตโนมัติ, ดู [CREDIT.md](CREDIT.md) สำหรับรายชื่อ
@@ -387,7 +387,8 @@ setup บังคับเหมือนบัญชีอื่นทุก�
 | Password field ไม่มี max length (bcrypt truncate เกิน 72 bytes แบบไม่มีใครรู้) | Manual review | เพิ่ม `.max(128)` ทุก schema ที่รับรหัสผ่าน/รหัสผ่านเดิม |
 | Vite dev server เปิด CORS แบบ allow-all โดย default (`server.cors` default `true`) | `npm audit` (esbuild GHSA-67mh-4wv8-2f99, ทางอ้อม) | ตั้ง `server.cors: false` ใน `vite.config.js` — app นี้ไม่ต้องพึ่ง cross-origin request ถึง dev server เลย |
 
-**Finding ที่ปล่อยผ่านโดยตั้งใจ** (`npm audit` ฝั่ง frontend): Svelte SSR XSS advisories (หลายตัว) กับ
+**Finding ที่ปล่อยผ่านโดยตั้งใจ** (`npm audit` ฝั่ง frontend — **แก้แล้วในรอบ 4** ด้วยการย้ายเป็น Svelte 5 +
+Vite 8 ย่อหน้านี้เก็บไว้เป็นประวัติ): Svelte SSR XSS advisories (หลายตัว) กับ
 esbuild dev-server CORS advisory ยังเจออยู่ในทุก patch ของ svelte@4.x/vite@5.x/esbuild@0.21.x ที่มี
 (ไม่มี non-breaking patch ที่แก้ได้ — ต้อง major upgrade เป็น Svelte 5 + Vite 6+ ซึ่งเปลี่ยน reactivity
 model ทั้งหมด นอกสโคปของงานนี้) ตรวจแล้วว่า **ไม่มี code path ที่ exploit ได้จริงในแอปนี้**: ไม่มีการเรียก
@@ -424,6 +425,8 @@ SSR (`svelte/server`) และไม่มีการใช้ `{@html ...}` �
   แค่ spawn nodemon ไม่แตะ path การติดตั้ง/แตกไฟล์ที่ CVE พวกนี้อยู่) → ตัดออกจากการสแกนด้วย
   `--skip-dirs` ใน `ci.yml` แทนการ ignore เป็นราย CVE เพราะ base image จะมี CVE ใหม่ในกลุ่มนี้โผล่มา
   เรื่อย ๆ ทุกครั้งที่อัปเดต
+- *(สองข้อด้านล่างเป็นประวัติ — exclusion ทั้งคู่ถูกลบออกแล้วในรอบ 4 เพราะ Vite 8 ไม่ใช้ esbuild และแก้ CVE
+  ของ vite แล้ว)*
 - `esbuild` (dependency ของ Vite) เป็น binary compile จาก Go — Trivy อ่าน Go stdlib module ที่ฝังอยู่
   ในตัว binary ได้ เจอ CVE ของ `net`/`net/http`/`net/mail` ของ Go ทั้งที่ esbuild ใช้แค่แปลงไฟล์ source
   ของเราเองในเครื่อง ไม่เปิด network service ที่ exercise code path พวกนั้นเลย → ตัดออกด้วย
@@ -432,7 +435,7 @@ SSR (`svelte/server`) และไม่มีการใช้ `{@html ...}` �
   path) — exploit ต้องอาศัย Vite dev server รันบน Windows filesystem แต่ container นี้รันบน Linux
   เสมอไม่ว่า host จะเป็น OS ไหน จึงไม่มี code path ที่ exploit ได้จริงในการรันแบบนี้ (แก้ตรงจริง ๆ ต้อง
   major upgrade เป็น Vite 6+ ซึ่งต้องใช้ Svelte 5 — ติด constraint เดียวกับ esbuild/Svelte SSR ที่บันทึก
-  ไว้ในรอบ 1) → บันทึกไว้ใน [frontend/.trivyignore](frontend/.trivyignore) พร้อมเหตุผลกำกับ ไม่ใช่ปล่อย
+  ไว้ในรอบ 1) → บันทึกไว้ใน `frontend/.trivyignore` พร้อมเหตุผลกำกับ ไม่ใช่ปล่อย
   เงียบ ๆ
 
 ### รอบ 4 (Snyk + manual review ของโค้ดล่าสุด) — แก้แล้วทุกจุดที่แก้ได้จริง
@@ -461,11 +464,22 @@ Snyk เชื่อมกับ repo ผ่าน GitHub integration (ผลม
 | `:id` ของ admin route ไม่ validate — id ผิดรูปได้ 500, id ตัวพิมพ์ใหญ่เลี่ยง guard ห้ามลด role ตัวเองได้ | Manual review | `parseUserId()` (zod uuid + lowercase) |
 | SSO callback log `req.query.error` ดิบ ๆ → log injection (CR/LF) | Manual review | `sanitizeProviderError()` เหลือแค่ `[\w.-]`, ยาวไม่เกิน 64 |
 
-**ยังเหลือโดยตั้งใจ** (`npm audit` ฝั่ง frontend, moderate ทั้งหมด ไม่ทำ CI แดง): Svelte advisory ชุดเดิม +
-ตัวใหม่ GHSA-rcqx-6q8c-2c42 (XSS ผ่าน DOM clobbering — ฝั่ง client ไม่ใช่ SSR) ตัวนี้ต้องให้ attacker ฉีด HTML
-ที่มี `id`/`name` เข้าหน้าเว็บได้ก่อน แอปนี้ไม่มี `{@html}` และไม่ render HTML จาก input ใด ๆ จึงไม่มีจุดให้
-exploit ได้ — แก้จริงต้อง Svelte 5 (constraint เดิมจากรอบ 1) | Backup codes regenerate ได้ด้วย session อย่างเดียว
-(ไม่มี step-up ด้วย TOTP) — บันทึกเป็นแนวทางต่อยอดใน README
+**Frontend ย้ายเป็น Svelte 5 + Vite 8 + `@sveltejs/vite-plugin-svelte` 7 + `svelte-spa-router` 5** — advisory
+ที่เหลือทั้งหมดฝั่ง frontend (Svelte SSR/DOM-clobbering XSS, esbuild dev-server CORS, `vite` `server.fs.deny`
+bypass ระดับ high ที่ทำ CI แดงอยู่บน `main`) ไม่มี patch ใน Svelte 4/Vite 5 แล้ว `npm audit` ฝั่ง frontend
+หลังย้ายเหลือ 0 ตัว โค้ดที่ต้องแก้มีแค่ 2 จุด:
+
+- `main.js`: `new App({ target })` → `mount(App, { target })` (Svelte 5 component เป็น function ไม่ใช่ class)
+- `App.svelte`: `<Router on:conditionsFailed=...>` → `onConditionsFailed=...` (svelte-spa-router 5 ใช้ callback
+  prop แทน component event)
+
+component อื่นทุกตัวยังเขียนแบบ Svelte 4 (`export let`, `$:`, `on:click`) ซึ่ง Svelte 5 รองรับใน legacy mode —
+**ตั้งใจไม่แปลงเป็น runes ในรอบนี้** เพื่อให้ diff เล็กและตรวจง่าย Vite 8 ต้องใช้ Node `^20.19 || >=22.12`
+(`node:20-alpine` ตอนนี้เป็น 20.20) และใช้ rolldown แทน esbuild จึงลบ `skip-files` ของ esbuild กับ
+`frontend/.trivyignore` ออกจาก CI
+
+**ยังเหลือโดยตั้งใจ:** Backup codes regenerate ได้ด้วย session อย่างเดียว (ไม่มี step-up ด้วย TOTP) —
+บันทึกเป็นแนวทางต่อยอดใน README
 
 ## การทดสอบที่ทำไปแล้ว
 
@@ -483,6 +497,11 @@ Build และรันผ่าน `docker compose` จริงบน Docker 
   network ไม่ได้ จึงรัน backend ด้วย node ตรง ๆ แทน container) ทดสอบมือเพิ่ม: refresh พร้อมกัน 2 request ผ่าน
   แค่ตัวเดียว, โค้ด TOTP ของ step ถัดไปใช้ได้ปกติ, admin route กับ id ผิดรูปได้ 404, uppercase id ของตัวเองโดน
   guard (409)
+- รอบ 4 (หลังย้าย Svelte 5 + Vite 8): `vite build` ผ่าน, smoke test ผ่านครบผ่าน Vite 8 dev proxy, และทดสอบ UI
+  จริงด้วย Playwright (Chromium) ครบ flow: guard ส่งคนไม่ login ไป `/login` → login → บังคับตั้ง 2FA (QR +
+  secret) → backup codes 10 ชุด → บังคับเปลี่ยนรหัสผ่าน → dashboard → หน้า users (สร้าง user ผ่าน modal) →
+  audit log → profile → logout → user ใหม่ทำ flow เดียวกัน → RBAC guard ส่งไป `/unauthorized` — ไม่มี JS error
+  ในหน้าเว็บ (มีแค่ 401 ของ `/auth/me` ตอนยังไม่ login กับ 404 ของ `/favicon.ico` ซึ่งเป็นแบบนี้อยู่แล้ว)
 - ทุก Svelte component ยืนยันแล้วว่า compile ผ่าน Vite ได้ไม่มี error (`curl` แต่ละไฟล์ได้ HTTP 200)
 
 ทดสอบ SSO/Keycloak แบบ end-to-end จริงด้วย `curl` (จำลอง browser: ตาม redirect, submit ฟอร์ม login ของ

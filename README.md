@@ -30,7 +30,7 @@ Facebook / LINE / Keycloak / OpenID Connect ทั่วไป — เขีย�
 
 | ส่วน | เทคโนโลยี |
 |---|---|
-| Frontend | [Svelte 4](https://svelte.dev) + [Vite](https://vitejs.dev) + [svelte-spa-router](https://github.com/ItalyPaleAle/svelte-spa-router) |
+| Frontend | [Svelte 5](https://svelte.dev) + [Vite 8](https://vitejs.dev) + [svelte-spa-router](https://github.com/ItalyPaleAle/svelte-spa-router) |
 | Backend | [Node.js 20](https://nodejs.org) + [Express](https://expressjs.com) |
 | Database | [PostgreSQL 16](https://www.postgresql.org) (ผ่าน `pg` driver, raw SQL — ไม่ใช้ ORM เพื่อให้เห็น query ตรง ๆ) |
 | 2FA | [otplib](https://github.com/yeojz/otplib) (TOTP) + [qrcode](https://github.com/soldair/node-qrcode) |
@@ -484,7 +484,6 @@ revoke (mark ในตาราง `refresh_tokens`) แล้วออกตั
 └── frontend/
     ├── Dockerfile
     ├── .env.example
-    ├── .trivyignore             # CVE ที่ตรวจแล้วไม่มี code path ให้ exploit ได้จริงในการรันแบบนี้
     └── src/
         ├── lib/                 api.js, guards.js, stores/
         ├── pages/                1 ไฟล์ต่อ 1 หน้า (Login, Setup2FA, Verify2FA, AdminUsers, ...)
@@ -611,7 +610,8 @@ smoke test แบบ end-to-end ([scripts/smoke-test.sh](scripts/smoke-test.sh))
 - เพิ่ม automated smoke test สำหรับ Keycloak variant ด้วย headless browser (Playwright) ให้ CI ครอบคลุม
   ทั้ง 2 docker-compose variant
 - บังคับ step-up (ใส่โค้ด TOTP อีกครั้ง) ก่อน regenerate backup codes / เปลี่ยนรหัสผ่าน
-- ย้ายไป Express 5 และ Svelte 5 + Vite 6+ (ปิด advisory ที่บันทึกไว้ว่ายังเหลือใน CLAUDE.md)
+- ย้ายไป Express 5
+- แปลง component เป็น Svelte 5 runes (`$state`/`$props`) — ตอนนี้ใช้ syntax แบบ Svelte 4 ที่ Svelte 5 ยังรองรับใน legacy mode
 - เพิ่ม Dependabot ต่อจาก pipeline ที่มีอยู่ใน [CI-CD.md](CI-CD.md) (container image scanning ด้วย
   Trivy มีอยู่แล้ว)
 

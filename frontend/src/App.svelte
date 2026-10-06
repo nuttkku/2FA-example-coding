@@ -47,7 +47,8 @@
 <Navbar />
 
 {#if ready}
-  <Router {routes} on:conditionsFailed={handleConditionsFailed} />
+  <!-- svelte-spa-router 5 takes callback props instead of on: component events -->
+  <Router {routes} onConditionsFailed={handleConditionsFailed} />
 {:else}
   <div class="center">Loading…</div>
 {/if}
