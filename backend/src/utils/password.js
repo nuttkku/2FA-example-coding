@@ -14,4 +14,7 @@ export async function verifySecret(plainText, hash) {
 // the usual cost when there is no real hash to compare against (unknown email,
 // SSO-only account with no local password), keeping response timing consistent
 // with a genuine wrong-password check and avoiding a user-enumeration oracle.
+// Flagged by Semgrep as a hardcoded secret / bcrypt hash - a reviewed false
+// positive (see above and CLAUDE.md), so suppressed on this line only.
+// nosemgrep
 export const DUMMY_PASSWORD_HASH = '$2a$10$Zn8EIX3zFEyEEXMPodxeQ.34WgznQaBtiDkJYGPZATdOAUjnVLoPu';

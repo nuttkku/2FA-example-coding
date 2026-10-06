@@ -20,6 +20,10 @@ function parseTrustProxy(value) {
 
 app.set('trust proxy', parseTrustProxy(env.TRUST_PROXY));
 
+// njsscan's "good_helmet_checks" rules report that helmet() IS setting these
+// headers (a positive finding), but run as blocking under `--error`. Suppressed
+// on this line only - see CLAUDE.md, scan round 4.
+// nosemgrep
 app.use(helmet());
 app.use(
   cors({

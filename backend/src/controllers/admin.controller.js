@@ -1,7 +1,7 @@
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { hashSecret } from '../utils/password.js';
 import { ConflictError, NotFoundError } from '../utils/errors.js';
-import { createUserSchema, updateUserSchema, resetPasswordSchema } from '../validators/schemas.js';
+import { createUserSchema, updateUserSchema, resetPasswordSchema, userIdParamSchema } from '../validators/schemas.js';
 import {
   listUsers,
   createUser,
@@ -11,9 +11,21 @@ import {
   setPasswordHash,
   resetTwoFactor,
   resetFailedLogins,
+  resetFailedTwoFactor,
 } from '../services/user.service.js';
 import { revokeAllForUser } from '../services/token.service.js';
 import { recordEvent, listEvents } from '../services/audit.service.js';
+
+// Validated up front so a malformed id is a clean 404 instead of Postgres
+// rejecting it as invalid UUID syntax deep inside a query (a 500 + error log).
+function parseUserId(req) {
+  const result = userIdParamSchema.safeParse(req.params.id);
+  if (!result.success) throw new NotFoundError('User not found');
+  // Postgres accepts upper-case UUIDs, so normalise - otherwise the
+  // "id === req.user.id" self-demotion guard in patchUser could be sidestepped
+  // by an admin passing their own id in upper case.
+  return result.data.toLowerCase();
+}
 
 export const getUsers = asyncHandler(async (req, res) => {
   const search = typeof req.query.search === 'string' ? req.query.search : null;
@@ -41,7 +53,7 @@ export const postUser = asyncHandler(async (req, res) => {
 });
 
 export const patchUser = asyncHandler(async (req, res) => {
-  const { id } = req.params;
+  const id = parseUserId(req);
   const { role, status } = updateUserSchema.parse(req.body);
 
   const target = await findById(id);
@@ -68,7 +80,7 @@ export const patchUser = asyncHandler(async (req, res) => {
 });
 
 export const postResetPassword = asyncHandler(async (req, res) => {
-  const { id } = req.params;
+  const id = parseUserId(req);
   const { temporaryPassword } = resetPasswordSchema.parse(req.body);
 
   const target = await findById(id);
@@ -77,6 +89,7 @@ export const postResetPassword = asyncHandler(async (req, res) => {
   const passwordHash = await hashSecret(temporaryPassword);
   await setPasswordHash(id, passwordHash, { mustChangePassword: true });
   await resetFailedLogins(id);
+  await resetFailedTwoFactor(id);
   await revokeAllForUser(id);
 
   await recordEvent({
@@ -90,7 +103,7 @@ export const postResetPassword = asyncHandler(async (req, res) => {
 });
 
 export const postResetTwoFactor = asyncHandler(async (req, res) => {
-  const { id } = req.params;
+  const id = parseUserId(req);
 
   const target = await findById(id);
   if (!target) throw new NotFoundError('User not found');

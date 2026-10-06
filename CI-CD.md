@@ -46,7 +46,7 @@ Implementation จริงอยู่ที่ [.github/workflows/ci.yml](.git
 | `security-scan` | รัน [Semgrep](https://semgrep.dev) (ผ่าน Docker image `semgrep/semgrep`) ด้วย ruleset `p/security-audit`, `p/secrets`, `p/javascript`, `p/nodejsscan` แล้ว `--error` (fail ถ้าเจอ finding) | จับ pattern ที่เป็นช่องโหว่จริง เช่น GCM ที่ไม่ pin auth tag length, secret ที่ hardcode ในโค้ด — วิธีเดียวกับที่ใช้ตรวจโปรเจกต์นี้จริงตอนพัฒนา (ดู [CLAUDE.md](CLAUDE.md#ผลการสแกนความปลอดภัย)) |
 | `build` | `docker compose build` — build ทั้ง backend และ frontend image | กัน Dockerfile พังแบบไม่มีใครรู้จนกว่าจะ deploy จริง |
 | `image-scan` | รัน [Trivy](https://trivy.dev) (ผ่าน [aquasecurity/trivy-action](https://github.com/aquasecurity/trivy-action)) สแกน image ที่ build เสร็จของทั้ง backend/frontend หา CRITICAL/HIGH ที่มี fix แล้ว | `audit`/`security-scan` ดูแค่ source กับ `package.json` — ไม่เห็นช่องโหว่ที่มาจาก OS package ของ base image (เช่น `libssl`/`libcrypto` ของ Alpine) หรือ dependency ที่ resolve จริงตอน build เท่านั้นที่ image scan เห็น |
-| `smoke-test` | `docker compose up -d --build` แล้วรัน [scripts/smoke-test.sh](scripts/smoke-test.sh) ยิง API จริงทั้ง flow: login บังคับ 2FA setup → ยืนยันโค้ด TOTP → ได้ backup codes → เปลี่ยนรหัสผ่าน → admin สร้าง user → RBAC ปฏิเสธ user ธรรมดาที่เรียก `/admin/users` (403) → logout แล้ว `/me` เป็น 401 | Unit test ไม่พอสำหรับระบบที่หัวใจคือ "สถานะไหลผ่าน service หลายตัว" (login → 2FA → session → RBAC) — smoke test นี้คือชุดเดียวกับที่ยืนยัน flow ทั้งหมดด้วยมือตอนพัฒนาฟีเจอร์ 2FA/RBAC/SSO ครั้งแรก แปลงเป็น script ที่รันซ้ำได้ |
+| `smoke-test` | `docker compose up -d --build` แล้วรัน [scripts/smoke-test.sh](scripts/smoke-test.sh) ยิง API จริงทั้ง flow: login บังคับ 2FA setup → ยืนยันโค้ด TOTP → ได้ backup codes → เปลี่ยนรหัสผ่าน (session เก่าถูก revoke) → refresh token ที่ rotate แล้วใช้ซ้ำถูกปฏิเสธและ revoke ทั้ง family → โค้ด TOTP ที่ใช้แล้วใช้ซ้ำไม่ได้ → backup code ใช้ได้ครั้งเดียว → admin สร้าง user → RBAC ปฏิเสธ user ธรรมดาที่เรียก `/admin/users` (403) → logout แล้ว `/me` เป็น 401 → ใส่โค้ด 2FA ผิด 5 ครั้งแล้วบัญชีถูกล็อก 2FA (403) | Unit test ไม่พอสำหรับระบบที่หัวใจคือ "สถานะไหลผ่าน service หลายตัว" (login → 2FA → session → RBAC) — smoke test นี้คือชุดเดียวกับที่ยืนยัน flow ทั้งหมดด้วยมือตอนพัฒนาฟีเจอร์ 2FA/RBAC/SSO ครั้งแรก แปลงเป็น script ที่รันซ้ำได้ |
 
 ทั้ง 5 job รันพร้อมกัน (ไม่ block กันเอง) ยกเว้น `image-scan`/`smoke-test` ที่รอ `build` ผ่านก่อน (ไม่มี
 ประโยชน์จะสแกน/รันสแตกที่ build ไม่ผ่าน) PR จะ merge ได้ก็ต่อเมื่อทุก job เขียวหมด — ไม่มี job ไหนเป็น
@@ -147,6 +147,21 @@ VM, Kubernetes, หรือ platform ไหน) — การ publish image ท
 เพราะทุก image ถูก tag ด้วยเลขเวอร์ชันที่ immutable (ไม่ใช่แค่ `latest`) การ rollback คือสั่ง deploy
 ด้วย tag เวอร์ชันก่อนหน้าตรง ๆ (`docker pull ghcr.io/<owner>/2fa-example-backend:1.1.0`) ไม่ต้อง build
 ใหม่ ไม่ต้อง revert commit ก่อน deploy — เก็บ image เวอร์ชันเก่าไว้เสมอ (ไม่ลบ tag ที่เคย release)
+
+## Snyk (นอก pipeline นี้)
+
+Repo นี้เชื่อมกับ [Snyk](https://snyk.io) ผ่าน GitHub integration (ตั้งค่าที่ฝั่ง Snyk ไม่ใช่ใน `ci.yml`) —
+Snyk สแกน `package.json`/`package-lock.json` แล้วเปิด PR แก้ dependency ให้เอง (`[Snyk] Upgrade ...` /
+`[Snyk] Security upgrade ...`) PR เหล่านั้นต้องผ่าน CI ชุดเดียวกับ PR ปกติทุกอย่าง **อย่า merge PR ที่ Snyk
+ประเมินว่า Merge Risk: High (เช่น major upgrade) โดยไม่อ่านก่อน** — บ่อยครั้งมี non-breaking patch ที่แก้ CVE
+เดียวกันได้ (ดูตัวอย่างรอบ 4 ใน [CLAUDE.md](CLAUDE.md#ผลการสแกนความปลอดภัย): Snyk เสนอ Express 5 เพื่อแก้
+`qs` แต่ Express 4.22.3 ดึง `qs` ที่แก้แล้วมาให้เหมือนกัน)
+
+### กดทับ (suppress) finding ของ Semgrep
+
+ใช้ `// nosemgrep` ใส่**บรรทัดก่อนหน้า**บรรทัดที่โดนเท่านั้น (กดทับเฉพาะบรรทัดนั้น ไม่ใช่ทั้งไฟล์/ทั้ง rule)
+พร้อม comment อธิบายว่าทำไมเป็น false positive — ห้ามแก้ CI ด้วยการถอด `--error` หรือ `--exclude-rule`
+ทั้ง rule ทิ้ง
 
 ## Branching และ versioning
 

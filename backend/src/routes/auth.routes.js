@@ -15,7 +15,9 @@ router.post('/refresh', auth.refresh);
 router.post('/logout', auth.logout);
 
 router.get('/me', requireAuth, auth.me);
-router.post('/change-password', requireAuth, auth.changePassword);
+// Rate-limited like login: it checks the current password, so an unlimited
+// endpoint would let a stolen session brute-force that password.
+router.post('/change-password', loginLimiter, requireAuth, auth.changePassword);
 router.post('/2fa/backup-codes/regenerate', requireAuth, auth.regenerateBackupCodes);
 
 export default router;

@@ -143,6 +143,7 @@ export async function issueRefreshCookie(res, userId, { ipAddress, userAgent } =
   );
 
   res.cookie(COOKIE_NAMES.refresh, token, { ...COOKIE_BASE, maxAge });
+  return jti;
 }
 
 export async function rotateRefreshCookie(req, res) {
@@ -164,16 +165,33 @@ export async function rotateRefreshCookie(req, res) {
     throw new UnauthorizedError('Session expired, please log in again');
   }
 
+  // Only a token that was *rotated* (replaced_by set) signals theft when it
+  // comes back. One revoked for an ordinary reason - logout, password change,
+  // admin action - is simply dead; treating it as theft would let a stale
+  // device (or whoever holds its old cookie) log the user out everywhere,
+  // including the session they just created by changing their password.
   if (record.revoked_at) {
+    if (record.replaced_by) await revokeAllForUser(payload.sub);
+    throw new UnauthorizedError('Session revoked - please log in again');
+  }
+
+  // Revoke-and-check in one conditional UPDATE: if two requests present the
+  // same token concurrently, only one can flip revoked_at, and the loser is
+  // treated as reuse of a rotated token (the winner is rotating it right now).
+  const { rowCount } = await pool.query(
+    'UPDATE refresh_tokens SET revoked_at = now() WHERE id = $1 AND revoked_at IS NULL',
+    [payload.jti],
+  );
+  if (rowCount !== 1) {
     await revokeAllForUser(payload.sub);
     throw new UnauthorizedError('Session revoked - please log in again');
   }
 
-  await pool.query('UPDATE refresh_tokens SET revoked_at = now() WHERE id = $1', [payload.jti]);
-  await issueRefreshCookie(res, payload.sub, {
+  const newJti = await issueRefreshCookie(res, payload.sub, {
     ipAddress: req.ip,
     userAgent: req.get('user-agent'),
   });
+  await pool.query('UPDATE refresh_tokens SET replaced_by = $2 WHERE id = $1', [payload.jti, newJti]);
 
   return payload.sub;
 }

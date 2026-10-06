@@ -28,6 +28,8 @@ export const createUserSchema = z.object({
   temporaryPassword: password,
 });
 
+export const userIdParamSchema = z.string().uuid();
+
 export const updateUserSchema = z.object({
   role: z.enum(['admin', 'manager', 'user']).optional(),
   status: z.enum(['active', 'disabled']).optional(),

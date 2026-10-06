@@ -77,6 +77,23 @@ token" (JWT อายุสั้น 5 นาที เก็บใน httpOnly 
 2. **`stage: 'verify'`** — ถ้าตั้ง 2FA ไว้แล้ว → frontend พาไปหน้า `/2fa/verify` → กรอกโค้ด TOTP
    หรือ backup code ที่ `POST /api/auth/2fa/verify` → สำเร็จจึงออก session เต็ม
 
+**โค้ด TOTP ใช้ได้ครั้งเดียว** — `verifyTotpCode(userId, secret, code)` ใน `twofa.service.js` หา
+time-step ของโค้ดด้วย `checkDelta()` แล้ว `claimTotpStep()` (conditional `UPDATE ... WHERE
+totp_last_used_step < $step`) ต้องสำเร็จด้วยถึงจะนับว่าถูก — `authenticator.check()` เฉย ๆ ของ otplib เป็น
+stateless รับโค้ดเดิมซ้ำได้ตลอดช่วง window ±1 step (~90 วินาที) `totp_last_used_step` ถูกล้างทุกครั้งที่สร้าง
+secret ใหม่ (`setTotpSecretPending`) และตอน admin reset 2FA
+
+**2FA lockout ต่อบัญชี แยกจาก password lockout** (`failed_2fa_attempts`/`twofa_locked_until`, migration
+`003_twofa_hardening.sql`, ค่า `TWOFA_MAX_ATTEMPTS`/`TWOFA_LOCK_MINUTES`) — rate limit ต่อ IP อย่างเดียว
+ไม่พอ เพราะคนที่ได้รหัสผ่านไปแล้วกระจายการเดาโค้ดไปหลาย IP ได้ ตั้งใจ**ไม่ใช้ counter เดียวกับ password
+lockout** เพราะจะทำให้คนที่แค่รู้ email ของ user SSO ยิงรหัสผิดจนล็อก 2FA ของเหยื่อได้ (ช่อง DoS เดียวกับที่
+ตั้งใจไม่เช็ค lockout กับ SSO ด้านล่าง) และ**ห้าม reset counter นี้ตอน password login สำเร็จ** (`resetFailedLogins`
+ไม่แตะ) ไม่งั้นคนที่มีรหัสผ่านแค่ login ใหม่ก็ได้โควตาเดาใหม่ — reset เฉพาะเมื่อ 2FA สำเร็จ หรือ admin reset
+password/2FA ส่วน `loadPreAuthUser()` ใน `auth.controller.js` เช็คซ้ำทุกครั้งที่ใช้ pre-auth cookie ว่า user
+ยังอยู่, ไม่ถูก disable, และ 2FA ไม่ถูกล็อก (pre-auth cookie อายุ 5 นาที สถานะอาจเปลี่ยนระหว่างนั้น)
+
+`twoFaLimiter` ตั้ง `skipSuccessfulRequests: true` — นับเฉพาะครั้งที่ผิด เพราะจุดประสงค์คือจำกัดการเดา
+
 **Admin ไม่มีทางปิด 2FA ให้ user คนไหนได้** มีแต่ "reset" (`POST /api/admin/users/:id/reset-2fa`)
 ซึ่งล้าง `totp_secret_enc`/`totp_enabled` กลับไปเป็นค่าว่าง — แปลว่า login ครั้งต่อไปของ user
 คนนั้นจะตกไปที่ stage `setup` ใหม่ทั้งหมด (บังคับตั้งใหม่ ไม่ใช่ทางลัดข้าม 2FA)
@@ -183,9 +200,18 @@ attacker รู้แค่ email ของเหยื่อก็ยิง `/a
 ใช้ secret **คนละตัวกันทุก cookie** โดยตั้งใจ — ป้องกัน token ประเภทหนึ่งถูกใช้ปลอมเป็นอีกประเภทได้ถ้าหลุด
 `jwt.sign`/`jwt.verify` ทุกที่ pin `algorithm: 'HS256'` ตรง ๆ ไม่พึ่ง default inference ของ library
 
-`refresh_token` มีการ **rotate ทุกครั้งที่ใช้** (ตัวเก่าถูก revoke, ออกตัวใหม่ทันที) ถ้ามีคน
-เอา refresh token ที่ revoke ไปแล้วมาใช้ซ้ำ (สัญญาณว่าโดนขโมย token) ระบบจะ revoke session
-ทั้งหมดของ user คนนั้นทันที (`revokeAllForUser` ใน `token.service.js`)
+`refresh_token` มีการ **rotate ทุกครั้งที่ใช้** (ตัวเก่าถูก revoke + ตั้ง `replaced_by` เป็น jti ตัวใหม่,
+ออกตัวใหม่ทันที) ถ้ามีคนเอา refresh token ที่**ถูก rotate ไปแล้ว**มาใช้ซ้ำ (สัญญาณว่าโดนขโมย token) ระบบจะ
+revoke session ทั้งหมดของ user คนนั้นทันที (`revokeAllForUser` ใน `token.service.js`) — **เฉพาะตัวที่
+`replaced_by` มีค่าเท่านั้น** token ที่ถูก revoke เพราะ logout/เปลี่ยนรหัสผ่าน/admin แค่ตอบ 401 เฉย ๆ
+(เจอจริงตอนเขียน smoke test: ถ้านับทุก token ที่ revoke เป็น "ถูกขโมย" เครื่องเก่าที่ยัง refresh อยู่จะลาก
+session ใหม่ที่เพิ่งได้จากการเปลี่ยนรหัสผ่านให้หลุดไปด้วย) การ revoke ตอน rotate ใช้ conditional `UPDATE
+... WHERE revoked_at IS NULL` แล้วเช็ค `rowCount` — request ที่ยิงพร้อมกันด้วย token เดียวกันจะสำเร็จได้
+แค่ตัวเดียว ตัวที่แพ้ถือเป็น reuse
+
+`change-password` revoke refresh token ทุกตัวของ user แล้วออก session ใหม่ให้เครื่องที่เปลี่ยน (`issueFullSession`)
+— การเปลี่ยนรหัสผ่านมักเป็นการตอบสนองต่อการสงสัยว่าบัญชีหลุด session เก่าจึงไม่ควรอยู่ต่อ (access token
+เดิมที่ออกไปแล้วยังใช้ได้จนหมดอายุ 15 นาที เพราะเป็น stateless JWT — ข้อจำกัดที่รู้อยู่แล้ว)
 
 ## ทำไม hash บางอย่าง แต่เข้ารหัส (encrypt) บางอย่าง
 
@@ -226,6 +252,9 @@ reset อะไรไม่ได้เลย (`users:write` เฉพาะ adm
 
 Admin แก้ role/สถานะของ**ตัวเอง**ให้หลุดจาก admin หรือ disable ตัวเองไม่ได้ (กันล็อกตัวเองออกจากระบบ)
 ดู guard ใน [backend/src/controllers/admin.controller.js](backend/src/controllers/admin.controller.js) `patchUser`
+— `:id` ทุก route ผ่าน `parseUserId()` (zod `uuid()` แล้ว `toLowerCase()`) ก่อนเสมอ: id ที่ไม่ใช่ UUID ได้ 404
+แทน 500 จาก Postgres และ guard ข้างบนเทียบ string ตรง ๆ ถ้าไม่ normalize ตัวพิมพ์ admin จะส่ง id ตัวเองแบบ
+ตัวพิมพ์ใหญ่ (Postgres รับได้) เพื่อเลี่ยง guard นี้ได้
 
 ## ความปลอดภัยอื่น ๆ ที่ implement ไว้
 
@@ -341,7 +370,7 @@ setup บังคับเหมือนบัญชีอื่นทุก�
 
 ## ผลการสแกนความปลอดภัย
 
-สแกน 2 รอบตามที่ requirement กำหนด (รอบ 1 ก่อนเพิ่ม SSO, รอบ 2 หลังเพิ่ม SSO) ด้วย `npm audit` +
+สแกนรอบแรก 2 รอบตามที่ requirement กำหนด (รอบ 1 ก่อนเพิ่ม SSO, รอบ 2 หลังเพิ่ม SSO) ด้วย `npm audit` +
 [Semgrep](https://semgrep.dev) (`p/security-audit`, `p/secrets`, `p/javascript`, `p/nodejsscan`)
 ผ่าน Docker image `semgrep/semgrep` (ไม่ต้องติดตั้งอะไรบนเครื่อง) ร่วมกับ manual review — คำสั่งเต็มอยู่ที่
 [CI-CD.md](CI-CD.md#รันเหมือน-ci-บนเครื่องตัวเอง-ก่อน-push)
@@ -406,6 +435,38 @@ SSR (`svelte/server`) และไม่มีการใช้ `{@html ...}` �
   ไว้ในรอบ 1) → บันทึกไว้ใน [frontend/.trivyignore](frontend/.trivyignore) พร้อมเหตุผลกำกับ ไม่ใช่ปล่อย
   เงียบ ๆ
 
+### รอบ 4 (Snyk + manual review ของโค้ดล่าสุด) — แก้แล้วทุกจุดที่แก้ได้จริง
+
+Snyk เชื่อมกับ repo ผ่าน GitHub integration (ผลมาจาก PR ที่ Snyk เปิด #1–#4) — Snyk CLI กับ Semgrep registry
+รันใน sandbox ตอนพัฒนารอบนี้ไม่ได้เพราะ network policy บล็อก จึงใช้ผลจาก PR ของ Snyk + log ของ CI run ล่าสุด
+แทน แล้วยืนยันว่า `// nosemgrep` กดทับได้จริงด้วย semgrep ในเครื่อง + rule จำลอง
+
+| จุดที่เจอ | เครื่องมือที่เจอ | การแก้ |
+|---|---|---|
+| `qs` (ผ่าน express/body-parser) DoS 2 ตัว (`SNYK-JS-QS-19432017`, `-19432019`) | Snyk (PR #1 เสนอ Express 5, Merge Risk: High) | ไม่ขึ้น Express 5 — `express@4.22.3` ดึง `qs@6.16.0`/`body-parser@1.20.8` ที่แก้แล้วมาให้ (non-breaking) |
+| `morgan` log injection ผ่าน `:remote-user` (`SNYK-JS-MORGAN-19432128`) | Snyk (PR #4) | `morgan@^1.12.0` |
+| `proxy-addr` IP spoofing ผ่าน IPv4-mapped IPv6 (critical), `brace-expansion` DoS | `npm audit` | `npm audit fix` (non-breaking) |
+| `braces` DoS ผ่าน `nodemon` → `chokidar@3` — ไม่มีเวอร์ชันแก้ของ `braces` เลย | `npm audit` | `overrides: { chokidar: ^4 }` ใน `backend/package.json` (chokidar 4 ไม่ใช้ `braces`) + ต้องตั้ง `pollingInterval` ใน `nodemon.json` (nodemon ส่ง `interval: undefined` ให้ chokidar 4 ตอน `legacyWatch` แล้ว crash) — ทดสอบแล้วว่าแก้ไฟล์แล้ว nodemon restart ปกติ |
+| `nanoid`, `source-map-js` DoS (frontend) | `npm audit` + Trivy (CI แดงอยู่) | `npm audit fix` (non-breaking) |
+| `openid-client`/`pg` ตามหลัง patch ล่าสุด (ไม่มี CVE) | Snyk (PR #2, #3) | อัปเดตไปพร้อมกัน |
+| Semgrep `good_helmet_checks` 6 ตัว — rule ประเภท "good" ที่รายงานว่า helmet **ตั้ง** header ให้แล้ว แต่ถูกนับเป็น blocking ภายใต้ `--error` (CI แดงอยู่) | Semgrep | `// nosemgrep` บรรทัดเดียวก่อน `app.use(helmet())` พร้อมเหตุผล |
+| `DUMMY_PASSWORD_HASH` — false positive ที่บันทึกไว้ตั้งแต่รอบ 2 แต่ยังทำ CI แดงอยู่ | Semgrep | `// nosemgrep` บรรทัดเดียวพร้อมเหตุผล |
+| โค้ด TOTP ใช้ซ้ำได้ภายใน ~90 วินาที (replay) | Manual review | จำ time-step ล่าสุด (`totp_last_used_step`) ดูหัวข้อการไหลของ 2FA |
+| ไม่มี lockout ต่อบัญชีสำหรับโค้ด 2FA — มีแต่ rate limit ต่อ IP | Manual review | `failed_2fa_attempts`/`twofa_locked_until` แยกจาก password lockout |
+| `verify`/`setup/confirm` ไม่เช็คว่า user ถูก disable ไประหว่างอายุ pre-auth cookie และ crash (500) ถ้า user ถูกลบ | Manual review | `loadPreAuthUser()` |
+| Backup code / refresh token rotation มี race (SELECT แล้ว UPDATE แยกกัน) — request พร้อมกันใช้ของชิ้นเดียวกันได้ 2 ครั้ง | Manual review | conditional `UPDATE ... WHERE used_at/revoked_at IS NULL` + เช็ค `rowCount` (ทดสอบยิงพร้อมกันแล้ว: ผ่านแค่ตัวเดียว) |
+| เปลี่ยนรหัสผ่านแล้ว refresh token ของเครื่องอื่นยังใช้ต่อได้ | Manual review | `revokeAllForUser` + ออก session ใหม่ให้เครื่องนี้ |
+| `/refresh` ออก access token ให้ user ที่ถูก disable/ลบไปแล้ว (crash 500 ถ้าถูกลบ) | Manual review | เช็ค user ก่อนออก token, ถ้า disabled revoke ทั้งหมด |
+| `/change-password` ไม่มี rate limit (ใช้ session ที่ขโมยมาเดารหัสเดิมได้ไม่จำกัด) | Manual review | ใส่ `loginLimiter` |
+| `:id` ของ admin route ไม่ validate — id ผิดรูปได้ 500, id ตัวพิมพ์ใหญ่เลี่ยง guard ห้ามลด role ตัวเองได้ | Manual review | `parseUserId()` (zod uuid + lowercase) |
+| SSO callback log `req.query.error` ดิบ ๆ → log injection (CR/LF) | Manual review | `sanitizeProviderError()` เหลือแค่ `[\w.-]`, ยาวไม่เกิน 64 |
+
+**ยังเหลือโดยตั้งใจ** (`npm audit` ฝั่ง frontend, moderate ทั้งหมด ไม่ทำ CI แดง): Svelte advisory ชุดเดิม +
+ตัวใหม่ GHSA-rcqx-6q8c-2c42 (XSS ผ่าน DOM clobbering — ฝั่ง client ไม่ใช่ SSR) ตัวนี้ต้องให้ attacker ฉีด HTML
+ที่มี `id`/`name` เข้าหน้าเว็บได้ก่อน แอปนี้ไม่มี `{@html}` และไม่ render HTML จาก input ใด ๆ จึงไม่มีจุดให้
+exploit ได้ — แก้จริงต้อง Svelte 5 (constraint เดิมจากรอบ 1) | Backup codes regenerate ได้ด้วย session อย่างเดียว
+(ไม่มี step-up ด้วย TOTP) — บันทึกเป็นแนวทางต่อยอดใน README
+
 ## การทดสอบที่ทำไปแล้ว
 
 Build และรันผ่าน `docker compose` จริงบน Docker Desktop (ทั้ง 2 variant: มี/ไม่มี Keycloak) แล้วทดสอบผ่าน
@@ -416,6 +477,12 @@ Build และรันผ่าน `docker compose` จริงบน Docker 
   `/auth/me` → change password → admin create user (`manager`/`user`) → RBAC ปฏิเสธ `user` ที่เรียก
   `/admin/users` (403) → account lockout หลังผิดรหัส 5 ครั้ง → admin reset password ปลดล็อกได้ → login
   ด้วย backup code สำเร็จและใช้ซ้ำไม่ได้ → refresh token rotation → logout แล้ว `/auth/me` เป็น 401
+- รอบ 4: smoke test เพิ่ม assertion — เปลี่ยนรหัสผ่านแล้ว session เก่าถูก revoke, refresh token ที่ rotate
+  แล้วใช้ซ้ำโดน revoke ทั้ง family, TOTP replay ถูกปฏิเสธ, backup code ใช้ซ้ำไม่ได้, โค้ดผิด 5 ครั้งล็อก 2FA
+  (403) — รันผ่านครบกับ backend จริง + Postgres 16 (ใน sandbox รอบนี้ build image ไม่ได้เพราะ `apk` ออก
+  network ไม่ได้ จึงรัน backend ด้วย node ตรง ๆ แทน container) ทดสอบมือเพิ่ม: refresh พร้อมกัน 2 request ผ่าน
+  แค่ตัวเดียว, โค้ด TOTP ของ step ถัดไปใช้ได้ปกติ, admin route กับ id ผิดรูปได้ 404, uppercase id ของตัวเองโดน
+  guard (409)
 - ทุก Svelte component ยืนยันแล้วว่า compile ผ่าน Vite ได้ไม่มี error (`curl` แต่ละไฟล์ได้ HTTP 200)
 
 ทดสอบ SSO/Keycloak แบบ end-to-end จริงด้วย `curl` (จำลอง browser: ตาม redirect, submit ฟอร์ม login ของ
