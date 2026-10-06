@@ -31,7 +31,7 @@ Facebook / LINE / Keycloak / OpenID Connect ทั่วไป — เขีย�
 | ส่วน | เทคโนโลยี |
 |---|---|
 | Frontend | [Svelte 5](https://svelte.dev) + [Vite 8](https://vitejs.dev) + [svelte-spa-router](https://github.com/ItalyPaleAle/svelte-spa-router) |
-| Backend | [Node.js 20](https://nodejs.org) + [Express](https://expressjs.com) |
+| Backend | [Node.js 20](https://nodejs.org) + [Express 5](https://expressjs.com) |
 | Database | [PostgreSQL 16](https://www.postgresql.org) (ผ่าน `pg` driver, raw SQL — ไม่ใช้ ORM เพื่อให้เห็น query ตรง ๆ) |
 | 2FA | [otplib](https://github.com/yeojz/otplib) (TOTP) + [qrcode](https://github.com/soldair/node-qrcode) |
 | SSO / OIDC | [openid-client](https://github.com/panva/openid-client) v6 (Keycloak/LINE/generic OIDC) + Facebook OAuth2 เขียนมือ |
@@ -610,7 +610,6 @@ smoke test แบบ end-to-end ([scripts/smoke-test.sh](scripts/smoke-test.sh))
 - เพิ่ม automated smoke test สำหรับ Keycloak variant ด้วย headless browser (Playwright) ให้ CI ครอบคลุม
   ทั้ง 2 docker-compose variant
 - บังคับ step-up (ใส่โค้ด TOTP อีกครั้ง) ก่อนเปลี่ยนรหัสผ่านด้วย (ตอนนี้บังคับแล้วเฉพาะ regenerate backup codes)
-- ย้ายไป Express 5
 - เพิ่ม Dependabot ต่อจาก pipeline ที่มีอยู่ใน [CI-CD.md](CI-CD.md) (container image scanning ด้วย
   Trivy มีอยู่แล้ว)
 

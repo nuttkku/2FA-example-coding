@@ -447,7 +447,7 @@ Snyk เชื่อมกับ repo ผ่าน GitHub integration (ผลม
 
 | จุดที่เจอ | เครื่องมือที่เจอ | การแก้ |
 |---|---|---|
-| `qs` (ผ่าน express/body-parser) DoS 2 ตัว (`SNYK-JS-QS-19432017`, `-19432019`) | Snyk (PR #1 เสนอ Express 5, Merge Risk: High) | ไม่ขึ้น Express 5 — `express@4.22.3` ดึง `qs@6.16.0`/`body-parser@1.20.8` ที่แก้แล้วมาให้ (non-breaking) |
+| `qs` (ผ่าน express/body-parser) DoS 2 ตัว (`SNYK-JS-QS-19432017`, `-19432019`) | Snyk (PR #1 เสนอ Express 5, Merge Risk: High) | แก้ก่อนด้วย `express@4.22.3` (ดึง `qs@6.16.0` ที่แก้แล้ว, non-breaking) แล้วย้ายเป็น Express 5 ใน commit แยกหลังทดสอบครบ (ดูด้านล่าง) |
 | `morgan` log injection ผ่าน `:remote-user` (`SNYK-JS-MORGAN-19432128`) | Snyk (PR #4) | `morgan@^1.12.0` |
 | `proxy-addr` IP spoofing ผ่าน IPv4-mapped IPv6 (critical), `brace-expansion` DoS | `npm audit` | `npm audit fix` (non-breaking) |
 | `braces` DoS ผ่าน `nodemon` → `chokidar@3` — ไม่มีเวอร์ชันแก้ของ `braces` เลย | `npm audit` | `overrides: { chokidar: ^4 }` ใน `backend/package.json` (chokidar 4 ไม่ใช้ `braces`) + ต้องตั้ง `pollingInterval` ใน `nodemon.json` (nodemon ส่ง `interval: undefined` ให้ chokidar 4 ตอน `legacyWatch` แล้ว crash) — ทดสอบแล้วว่าแก้ไฟล์แล้ว nodemon restart ปกติ |
@@ -481,6 +481,15 @@ compile ไม่ผ่านทันที ไม่ใช่แอบรั�
 runes mode จึงไม่ได้แปลง Vite 8 ต้องใช้ Node `^20.19 || >=22.12`
 (`node:20-alpine` ตอนนี้เป็น 20.20) และใช้ rolldown แทน esbuild จึงลบ `skip-files` ของ esbuild กับ
 `frontend/.trivyignore` ออกจาก CI
+
+**Backend ย้ายเป็น Express 5** (`express@^5`, body-parser 2) — ไม่มีโค้ดที่ใช้ API ที่ถูกถอดออก (`req.param()`,
+`res.redirect('back')`, wildcard `*` แบบไม่มีชื่อ, การเขียนทับ `req.query`) สิ่งที่เปลี่ยนพฤติกรรมจริงมีแค่ `req.body`
+เป็น `undefined` (ไม่ใช่ `{}`) เมื่อไม่มี body ซึ่ง zod schema ทุกตัวปฏิเสธเป็น 400 เหมือนเดิม `asyncHandler` ยังเก็บไว้
+แม้ Express 5 จะส่ง promise rejection เข้า error handler เองแล้ว (ไม่มีผลเสีย และไม่ต้องไล่แก้ทุก controller)
+
+`error.middleware.js` ตอบ 4xx ตาม `err.status` สำหรับ error ของ Express/body-parser เองที่ `expose: true` (JSON เสีย →
+400, body ใหญ่เกิน → 413) — เดิม (ทั้ง Express 4 และ 5) ตกไปเป็น 500 + log "Unexpected error" ทำให้ใครก็ยิง JSON
+เสียมาให้ log เต็มได้
 
 **Regenerate backup codes ต้อง step-up ด้วยโค้ด TOTP** (`POST /2fa/backup-codes/regenerate` รับ `{ code }`) —
 backup codes คือ credential ข้าม 2FA ที่อยู่ได้นาน ถ้าใช้แค่ session ก็ออกให้ได้ คนที่ขโมย session cookie ไปจะแปลง

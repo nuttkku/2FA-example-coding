@@ -15,7 +15,7 @@
 
 | Package | ใช้ทำอะไร |
 |---|---|
-| [express](https://expressjs.com) | HTTP server / routing |
+| [express](https://expressjs.com) 5 | HTTP server / routing |
 | [pg](https://node-postgres.com) | PostgreSQL client |
 | [bcryptjs](https://github.com/dcodeIO/bcrypt.js) | Hash รหัสผ่าน/backup codes |
 | [jsonwebtoken](https://github.com/auth0/node-jsonwebtoken) | ออก/ตรวจ JWT (pre-auth, access, refresh, sso_state cookie) |
