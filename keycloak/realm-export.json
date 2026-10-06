@@ -6,7 +6,7 @@
   "clients": [
     {
       "clientId": "twofa-backend",
-      "name": "2FA Example backend",
+      "name": "MFA Example backend",
       "enabled": true,
       "protocol": "openid-connect",
       "publicClient": false,

@@ -1,5 +1,5 @@
 {
-  "name": "2fa-example-e2e",
+  "name": "mfa-example-e2e",
   "version": "1.0.0",
   "description": "Browser end-to-end test of the login/2FA/RBAC flows through the real UI",
   "type": "module",

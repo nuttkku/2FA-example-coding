@@ -16,7 +16,7 @@
 <nav
   style="display:flex; align-items:center; justify-content:space-between; padding:0.9rem 1.5rem; border-bottom:1px solid var(--color-border); background:var(--color-surface);"
 >
-  <a href="#/dashboard" style="font-weight:700; color:var(--color-text);">🔐 2FA Example</a>
+  <a href="#/dashboard" style="font-weight:700; color:var(--color-text);">🔐 MFA Example</a>
 
   <div class="row">
     {#if $authStore.status === 'authenticated'}

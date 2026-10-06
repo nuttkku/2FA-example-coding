@@ -1,4 +1,9 @@
-# 🔐 2FA Example — Login + RBAC + บังคับ 2FA (TOTP) + SSO (OIDC/Facebook/LINE/Keycloak)
+# 🔐 MFA Example — Login + RBAC + บังคับ 2FA (TOTP) + SSO (OIDC/Facebook/LINE/Keycloak)
+
+> โปรเจกต์นี้เดิมชื่อ **2FA Example** (repo `2FA-example-coding`) เปลี่ยนชื่อเป็น **MFA Example** — ตอนนี้ปัจจัยที่สอง
+> ที่ implement คือ TOTP (+ backup codes) ซึ่งตามนิยามก็คือ 2FA ชื่อ MFA สื่อถึงแนวทางที่จะรองรับปัจจัยอื่นเพิ่มได้
+> (เช่น WebAuthn/Passkey ในหัวข้อแนวทางต่อยอด) ถ้าเคยรันเวอร์ชันชื่อเดิมไว้ ดู
+> [ย้ายจากชื่อเดิม (2fa-example)](#ย้ายจากชื่อเดิม-2fa-example)
 
 โปรเจกต์ตัวอย่างสำหรับ **เรียนรู้การสร้างระบบ Login ที่บังคับ 2FA กับผู้ใช้ทุกคน** พร้อมระบบ
 **RBAC (Role-Based Access Control)**, หน้าบริหารจัดการผู้ใช้, และ **Single Sign-On (SSO)** ผ่าน
@@ -145,6 +150,25 @@ bash scripts/smoke-test.sh        # ทดสอบ flow หลักทั้�
 
 > ถ้ารันแบบมี Keycloak ต้องใส่ `-f docker-compose.yml -f docker-compose.keycloak.yml` ทุกคำสั่ง
 > `docker compose` เหมือนกันตอน `up`, ไม่ใช่แค่ตอนแรก
+
+### ย้ายจากชื่อเดิม (2fa-example)
+
+ชื่อ compose project เปลี่ยนจาก `2fa-example` เป็น `mfa-example` ทำให้ Docker volume ของ Postgres เปลี่ยนชื่อตาม
+(`2fa-example_postgres_data` → `mfa-example_postgres_data`) — ถ้าเคยรันชื่อเดิมไว้แล้ว `up` ครั้งแรกหลังอัปเดตจะได้
+**ฐานข้อมูลใหม่ที่ว่างเปล่า** (ข้อมูลเดิมไม่หาย ยังอยู่ใน volume ชื่อเดิม) ถ้าต้องการใช้ข้อมูลเดิมต่อ ให้ทำครั้งเดียว:
+
+```bash
+docker compose -p 2fa-example down          # หยุด container ชุดชื่อเดิม (เก็บ volume ไว้)
+docker volume create mfa-example_postgres_data
+docker run --rm -v 2fa-example_postgres_data:/from -v mfa-example_postgres_data:/to alpine:3 \
+  sh -c 'cp -a /from/. /to/'
+docker compose up -d --build                # ชื่อใหม่ ใช้ข้อมูลเดิม
+```
+
+`.env` ที่สร้างไว้แล้วใช้ต่อได้เลย (ชื่อ DB/user ใหม่ `mfa_app`/`mfa_example` ใน `.env.example` มีผลเฉพาะตอนสร้าง
+`.env` ใหม่) ถ้าดึง image จาก GHCR: ชื่อ package ใหม่คือ `ghcr.io/<owner>/mfa-example-backend|frontend` เวอร์ชันที่
+publish ก่อนเปลี่ยนชื่อยังอยู่ใต้ชื่อเดิม `2fa-example-*` ส่วน authenticator app ที่ตั้งไว้แล้วยังแสดงชื่อ issuer เดิม
+"2FA Example" (ชื่อใหม่ "MFA Example" มีผลเฉพาะตอนตั้ง 2FA ใหม่) — โค้ดยังใช้ได้ปกติ ไม่ต้องตั้งใหม่
 
 ## 🔑 ขั้นตอนการทำงานของ 2FA
 
@@ -460,7 +484,7 @@ revoke (mark ในตาราง `refresh_tokens`) แล้วออกตั
 ## 📁 โครงสร้างโปรเจกต์
 
 ```
-2FA-example-coding/
+MFA-example-coding/
 ├── docker-compose.yml
 ├── docker-compose.keycloak.yml  # addon: เพิ่ม Keycloak + ชี้ backend ไปที่มัน (รันคู่กับไฟล์บนเสมอ)
 ├── keycloak/realm-export.json   # realm/client/demo user ที่ Keycloak import ให้อัตโนมัติ

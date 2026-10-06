@@ -1,5 +1,5 @@
 {
-  "name": "2fa-example-frontend",
+  "name": "mfa-example-frontend",
   "version": "1.0.0",
   "description": "Svelte SPA for the RBAC + mandatory 2FA login example",
   "type": "module",

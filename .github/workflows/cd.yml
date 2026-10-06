@@ -42,7 +42,7 @@ jobs:
           context: ./${{ matrix.service }}
           push: true
           tags: |
-            ghcr.io/${{ github.repository_owner }}/2fa-example-${{ matrix.service }}:${{ steps.version.outputs.value }}
-            ghcr.io/${{ github.repository_owner }}/2fa-example-${{ matrix.service }}:latest
+            ghcr.io/${{ github.repository_owner }}/mfa-example-${{ matrix.service }}:${{ steps.version.outputs.value }}
+            ghcr.io/${{ github.repository_owner }}/mfa-example-${{ matrix.service }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max

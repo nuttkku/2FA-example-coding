@@ -33,7 +33,7 @@ flowchart TD
 
     Merge --> Tag["สร้าง git tag vX.Y.Z ตอนพร้อม release"]
     Tag --> CD{"CD (.github/workflows/cd.yml)"}
-    CD --> Publish["Build + push image ขึ้น GHCR<br/>ghcr.io/&lt;owner&gt;/2fa-example-backend:X.Y.Z<br/>ghcr.io/&lt;owner&gt;/2fa-example-frontend:X.Y.Z"]
+    CD --> Publish["Build + push image ขึ้น GHCR<br/>ghcr.io/&lt;owner&gt;/mfa-example-backend:X.Y.Z<br/>ghcr.io/&lt;owner&gt;/mfa-example-frontend:X.Y.Z"]
     Publish --> Deploy["Deploy (นอก scope ของ repo นี้ - ดูหัวข้อ CD)"]
 ```
 
@@ -101,14 +101,14 @@ docker run --rm -v "$PWD:/src" semgrep/semgrep \
 docker compose build
 
 # 4) image scan (ใช้ Docker, ไม่ต้องติดตั้ง trivy เอง)
-docker build -t 2fa-example-backend:scan ./backend
-docker build -t 2fa-example-frontend:scan ./frontend
+docker build -t mfa-example-backend:scan ./backend
+docker build -t mfa-example-frontend:scan ./frontend
 docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:latest image \
   --severity CRITICAL,HIGH --ignore-unfixed \
-  --skip-dirs /usr/local/lib/node_modules/npm 2fa-example-backend:scan
+  --skip-dirs /usr/local/lib/node_modules/npm mfa-example-backend:scan
 docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:latest image \
   --severity CRITICAL,HIGH --ignore-unfixed \
-  --skip-dirs /usr/local/lib/node_modules/npm 2fa-example-frontend:scan
+  --skip-dirs /usr/local/lib/node_modules/npm mfa-example-frontend:scan
 
 # 5) smoke test แบบเต็ม
 bash scripts/generate-secrets.sh   # ถ้ายังไม่มี .env
@@ -132,7 +132,7 @@ Implementation อยู่ที่ [.github/workflows/cd.yml](.github/workflow
 ทำงาน 2 อย่างต่อ service (backend, frontend):
 1. Build image จาก `Dockerfile` ของ service นั้น
 2. Push ขึ้น [GitHub Container Registry](https://ghcr.io) เป็น 2 tag: เลขเวอร์ชันที่ tag ไว้ (เช่น
-   `ghcr.io/<owner>/2fa-example-backend:1.2.0`) และ `:latest`
+   `ghcr.io/<owner>/mfa-example-backend:1.2.0`) และ `:latest`
 
 ### ทำไมไม่ deploy ต่อให้เลย
 
@@ -145,7 +145,7 @@ VM, Kubernetes, หรือ platform ไหน) — การ publish image ท
 ### Rollback
 
 เพราะทุก image ถูก tag ด้วยเลขเวอร์ชันที่ immutable (ไม่ใช่แค่ `latest`) การ rollback คือสั่ง deploy
-ด้วย tag เวอร์ชันก่อนหน้าตรง ๆ (`docker pull ghcr.io/<owner>/2fa-example-backend:1.1.0`) ไม่ต้อง build
+ด้วย tag เวอร์ชันก่อนหน้าตรง ๆ (`docker pull ghcr.io/<owner>/mfa-example-backend:1.1.0`) ไม่ต้อง build
 ใหม่ ไม่ต้อง revert commit ก่อน deploy — เก็บ image เวอร์ชันเก่าไว้เสมอ (ไม่ลบ tag ที่เคย release)
 
 ## Snyk (นอก pipeline นี้)

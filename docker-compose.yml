@@ -1,4 +1,4 @@
-name: 2fa-example
+name: mfa-example
 
 services:
   postgres:

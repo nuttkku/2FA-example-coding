@@ -36,6 +36,13 @@ Stack: **Svelte 5 + Vite 8** (frontend) / **Node.js + Express** (backend) / **Po
 ดู [CI-CD.md](CI-CD.md) สำหรับกระบวนการพัฒนา/ตรวจสอบอัตโนมัติ, ดู [CREDIT.md](CREDIT.md) สำหรับรายชื่อ
 open-source software/บริการที่ใช้ในโปรเจกต์
 
+**ชื่อโปรเจกต์: MFA Example** (เดิม 2FA Example) — เปลี่ยนเฉพาะ*ชื่อโปรเจกต์* (compose project `mfa-example`,
+package/image `mfa-example-*`, DB default `mfa_app`/`mfa_example`, issuer default "MFA Example", ชื่อใน UI) ส่วนคำว่า
+**2FA ที่หมายถึงตัวฟีเจอร์** (TOTP เป็นปัจจัยที่สอง, ชื่อตัวแปร/route/ตาราง เช่น `TWOFA_*`, `/2fa/*`, `totp_*`)
+ตั้งใจคงไว้ เพราะ implement จริงคือ 2FA และเปลี่ยนตรงนั้นจะเป็น breaking change ของ API/schema/env โดยไม่ได้อะไร —
+ผลข้างเคียงของการเปลี่ยนชื่อ compose project (volume ใหม่ ข้อมูลเดิมยังอยู่ใน volume ชื่อเก่า) อธิบายพร้อมวิธีย้ายไว้ใน
+README หัวข้อ "ย้ายจากชื่อเดิม" ชื่อ repo บน GitHub ต้องเปลี่ยนเองที่ Settings ของ repo (GitHub redirect URL เดิมให้)
+
 ## สถาปัตยกรรม
 
 ```

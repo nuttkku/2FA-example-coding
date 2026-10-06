@@ -30,7 +30,7 @@ const schema = z.object({
   TOTP_ENCRYPTION_KEY: z
     .string()
     .regex(/^[0-9a-fA-F]{64}$/, 'TOTP_ENCRYPTION_KEY must be 64 hex characters (32 bytes)'),
-  TWOFA_ISSUER: z.string().default('2FA Example'),
+  TWOFA_ISSUER: z.string().default('MFA Example'),
 
   COOKIE_SECURE: z
     .string()

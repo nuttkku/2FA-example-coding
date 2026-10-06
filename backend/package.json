@@ -1,5 +1,5 @@
 {
-  "name": "2fa-example-backend",
+  "name": "mfa-example-backend",
   "version": "1.0.0",
   "description": "Express + PostgreSQL API with RBAC and mandatory TOTP-based 2FA",
   "type": "module",
