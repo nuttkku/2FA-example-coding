@@ -1,30 +1,37 @@
 <script>
+  import { preventDefault, self } from '../lib/events.js';
   import { onMount } from 'svelte';
   import { authStore } from '../lib/stores/auth.js';
   import { api, ApiError } from '../lib/api.js';
 
   const ROLES = ['admin', 'manager', 'user'];
 
-  let users = [];
-  let search = '';
-  let loading = true;
-  let error = '';
-  let info = '';
+  let users = $state([]);
+  let search = $state('');
+  let loading = $state(true);
+  let error = $state('');
+  let info = $state('');
 
-  let showCreateModal = false;
-  let newUser = { email: '', fullName: '', role: 'user', temporaryPassword: '' };
-  let creating = false;
+  let showCreateModal = $state(false);
+  let newUser = $state({ email: '', fullName: '', role: 'user', temporaryPassword: '' });
+  let creating = $state(false);
 
-  let resetPasswordTarget = null;
-  let resettingPassword = false;
+  let resetPasswordTarget = $state(null);
+  let resettingPassword = $state(false);
 
-  $: isAdmin = $authStore.user?.role === 'admin';
+  const isAdmin = $derived($authStore.user?.role === 'admin');
 
+  // The backend requires a letter AND a digit. 12 random chars from this
+  // alphabet contain no digit roughly 16% of the time, which used to make
+  // "create user"/"reset password" fail at random - so redraw until it has one.
   function generateTempPassword() {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
-    const bytes = crypto.getRandomValues(new Uint32Array(12));
-    let result = 'Temp-';
-    bytes.forEach((n) => (result += chars[n % chars.length]));
+    let result;
+    do {
+      const bytes = crypto.getRandomValues(new Uint32Array(12));
+      result = 'Temp-';
+      bytes.forEach((n) => (result += chars[n % chars.length]));
+    } while (!/[0-9]/.test(result));
     return result;
   }
 
@@ -102,6 +109,13 @@
     }
   }
 
+  // Keyboard equivalent of clicking the backdrop: Escape closes whichever modal is open.
+  function closeModalOnEscape(event) {
+    if (event.key !== 'Escape') return;
+    showCreateModal = false;
+    resetPasswordTarget = null;
+  }
+
   async function resetTwoFactor(user) {
     if (!confirm(`Reset 2FA for ${user.email}? They will be forced through setup again on next login.`)) return;
     error = '';
@@ -115,6 +129,8 @@
   }
 </script>
 
+<svelte:window onkeydown={closeModalOnEscape} />
+
 <div class="page">
   <div class="toolbar">
     <div>
@@ -122,7 +138,7 @@
       <p class="subtitle" style="margin-bottom:0;">Manage accounts, roles, and 2FA enrollment.</p>
     </div>
     {#if isAdmin}
-      <button class="btn" on:click={openCreateModal}>+ New user</button>
+      <button class="btn" onclick={openCreateModal}>+ New user</button>
     {/if}
   </div>
 
@@ -134,7 +150,7 @@
   {/if}
 
   <div class="card">
-    <form class="row" style="margin-bottom:1rem;" on:submit|preventDefault={loadUsers}>
+    <form class="row" style="margin-bottom:1rem;" onsubmit={preventDefault(loadUsers)}>
       <input placeholder="Search by name or email…" bind:value={search} style="max-width:280px;" />
       <button class="btn btn-secondary" type="submit">Search</button>
     </form>
@@ -163,7 +179,7 @@
                 <td>{user.has_password ? 'Password' : 'SSO only'}</td>
                 <td>
                   {#if isAdmin}
-                    <select value={user.role} on:change={(e) => changeRole(user, e.target.value)}>
+                    <select value={user.role} onchange={(e) => changeRole(user, e.target.value)}>
                       {#each ROLES as role}
                         <option value={role}>{role}</option>
                       {/each}
@@ -177,13 +193,13 @@
                 {#if isAdmin}
                   <td>
                     <div class="row">
-                      <button class="btn btn-secondary btn-sm" on:click={() => toggleStatus(user)}>
+                      <button class="btn btn-secondary btn-sm" onclick={() => toggleStatus(user)}>
                         {user.status === 'active' ? 'Disable' : 'Enable'}
                       </button>
-                      <button class="btn btn-secondary btn-sm" on:click={() => openResetPassword(user)}>
+                      <button class="btn btn-secondary btn-sm" onclick={() => openResetPassword(user)}>
                         Reset password
                       </button>
-                      <button class="btn btn-secondary btn-sm" on:click={() => resetTwoFactor(user)}>
+                      <button class="btn btn-secondary btn-sm" onclick={() => resetTwoFactor(user)}>
                         Reset 2FA
                       </button>
                     </div>
@@ -199,10 +215,12 @@
 </div>
 
 {#if showCreateModal}
-  <div class="modal-backdrop" on:click|self={() => (showCreateModal = false)}>
-    <div class="modal">
-      <h2>Create user</h2>
-      <form on:submit|preventDefault={submitCreateUser}>
+  <!-- The backdrop click is a mouse shortcut only; keyboard users close with
+       Escape (svelte:window above) or the Cancel button, hence role="presentation". -->
+  <div class="modal-backdrop" role="presentation" onclick={self(() => (showCreateModal = false))}>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="create-user-title">
+      <h2 id="create-user-title">Create user</h2>
+      <form onsubmit={preventDefault(submitCreateUser)}>
         <div class="field">
           <label for="new-email">Email</label>
           <input id="new-email" type="email" bind:value={newUser.email} required />
@@ -226,7 +244,7 @@
         </div>
         <div class="row">
           <button class="btn" type="submit" disabled={creating}>{creating ? 'Creating…' : 'Create user'}</button>
-          <button class="btn btn-secondary" type="button" on:click={() => (showCreateModal = false)}>Cancel</button>
+          <button class="btn btn-secondary" type="button" onclick={() => (showCreateModal = false)}>Cancel</button>
         </div>
       </form>
     </div>
@@ -234,10 +252,10 @@
 {/if}
 
 {#if resetPasswordTarget}
-  <div class="modal-backdrop" on:click|self={() => (resetPasswordTarget = null)}>
-    <div class="modal">
-      <h2>Reset password for {resetPasswordTarget.email}</h2>
-      <form on:submit|preventDefault={submitResetPassword}>
+  <div class="modal-backdrop" role="presentation" onclick={self(() => (resetPasswordTarget = null))}>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="reset-password-title">
+      <h2 id="reset-password-title">Reset password for {resetPasswordTarget.email}</h2>
+      <form onsubmit={preventDefault(submitResetPassword)}>
         <div class="field">
           <label for="reset-password">Temporary password</label>
           <input id="reset-password" bind:value={resetPasswordTarget.temporaryPassword} required />
@@ -247,7 +265,7 @@
           <button class="btn" type="submit" disabled={resettingPassword}>
             {resettingPassword ? 'Saving…' : 'Reset password'}
           </button>
-          <button class="btn btn-secondary" type="button" on:click={() => (resetPasswordTarget = null)}>
+          <button class="btn btn-secondary" type="button" onclick={() => (resetPasswordTarget = null)}>
             Cancel
           </button>
         </div>

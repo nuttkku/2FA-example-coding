@@ -14,6 +14,8 @@ import {
   resetFailedLogins,
   setPasswordHash,
   enableTotp,
+  recordFailedTwoFactor,
+  resetFailedTwoFactor,
 } from '../services/user.service.js';
 import { recordEvent } from '../services/audit.service.js';
 import {
@@ -22,6 +24,7 @@ import {
   issueAccessCookie,
   rotateRefreshCookie,
   revokeRefreshCookie,
+  revokeAllForUser,
   clearSessionCookies,
 } from '../services/token.service.js';
 import {
@@ -83,8 +86,32 @@ export const login = asyncHandler(async (req, res) => {
   return res.json({ stage: 'verify_required' });
 });
 
-export const startTwoFactorSetup = asyncHandler(async (req, res) => {
+// The pre-auth cookie only proves the password (or SSO) step passed when it was
+// issued, up to PRE_AUTH_TOKEN_TTL ago - re-check the account is still usable
+// (not deleted/disabled by an admin in the meantime, not 2FA-locked) before
+// letting it finish the 2FA step and receive a full session.
+async function loadPreAuthUser(req) {
   const user = await findById(req.preAuthUserId);
+  if (!user) throw new UnauthorizedError('2FA session expired, please log in again');
+  if (user.status === 'disabled') {
+    throw new ForbiddenError('This account has been disabled. Contact an administrator.');
+  }
+  if (user.twofa_locked_until && new Date(user.twofa_locked_until) > new Date()) {
+    throw new ForbiddenError('Too many incorrect verification codes. Please try again later.');
+  }
+  return user;
+}
+
+async function recordTwoFactorFailure(req, user, eventType) {
+  await recordFailedTwoFactor(user.id, {
+    maxAttempts: env.TWOFA_MAX_ATTEMPTS,
+    lockMinutes: env.TWOFA_LOCK_MINUTES,
+  });
+  await recordEvent({ userId: user.id, eventType, ipAddress: req.ip });
+}
+
+export const startTwoFactorSetup = asyncHandler(async (req, res) => {
+  const user = await loadPreAuthUser(req);
   if (user.totp_enabled) throw new ConflictError('2FA is already enabled for this account');
 
   const secret = generateTotpSecret();
@@ -96,18 +123,20 @@ export const startTwoFactorSetup = asyncHandler(async (req, res) => {
 
 export const confirmTwoFactorSetup = asyncHandler(async (req, res) => {
   const { code } = twoFaCodeSchema.parse(req.body);
-  const user = await findById(req.preAuthUserId);
+  const user = await loadPreAuthUser(req);
 
+  if (user.totp_enabled) throw new ConflictError('2FA is already enabled for this account');
   if (!user.totp_secret_enc) throw new ValidationError('No pending 2FA setup found, please restart setup');
 
   const secret = decryptStoredSecret(user.totp_secret_enc);
-  const valid = verifyTotpCode(secret, code);
+  const valid = await verifyTotpCode(user.id, secret, code);
   if (!valid) {
-    await recordEvent({ userId: user.id, eventType: '2fa_setup_failed', ipAddress: req.ip });
+    await recordTwoFactorFailure(req, user, '2fa_setup_failed');
     throw new ValidationError('Invalid verification code');
   }
 
   await enableTotp(user.id);
+  await resetFailedTwoFactor(user.id);
   const backupCodes = await issueBackupCodes(user.id);
   await recordEvent({ userId: user.id, eventType: '2fa_setup_complete', ipAddress: req.ip });
 
@@ -118,7 +147,7 @@ export const confirmTwoFactorSetup = asyncHandler(async (req, res) => {
 
 export const verifyTwoFactor = asyncHandler(async (req, res) => {
   const { code } = twoFaCodeSchema.parse(req.body);
-  const user = await findById(req.preAuthUserId);
+  const user = await loadPreAuthUser(req);
 
   if (!user.totp_enabled || !user.totp_secret_enc) {
     throw new ValidationError('2FA is not set up for this account');
@@ -131,14 +160,15 @@ export const verifyTwoFactor = asyncHandler(async (req, res) => {
     usedBackupCode = valid;
   } else {
     const secret = decryptStoredSecret(user.totp_secret_enc);
-    valid = verifyTotpCode(secret, code);
+    valid = await verifyTotpCode(user.id, secret, code);
   }
 
   if (!valid) {
-    await recordEvent({ userId: user.id, eventType: '2fa_verify_failed', ipAddress: req.ip });
+    await recordTwoFactorFailure(req, user, '2fa_verify_failed');
     throw new ValidationError('Invalid verification code');
   }
 
+  await resetFailedTwoFactor(user.id);
   await recordEvent({
     userId: user.id,
     eventType: usedBackupCode ? '2fa_backup_code_used' : '2fa_verify_success',
@@ -152,6 +182,13 @@ export const verifyTwoFactor = asyncHandler(async (req, res) => {
 export const refresh = asyncHandler(async (req, res) => {
   const userId = await rotateRefreshCookie(req, res);
   const user = await findById(userId);
+  // requireAuth already rejects disabled accounts per request, but don't keep
+  // minting fresh tokens for an account that is gone or disabled either.
+  if (!user || user.status === 'disabled') {
+    if (user) await revokeAllForUser(user.id);
+    clearSessionCookies(res);
+    throw new UnauthorizedError('Session expired, please log in again');
+  }
   issueAccessCookie(res, user);
   res.json({ ok: true });
 });
@@ -189,12 +226,39 @@ export const changePassword = asyncHandler(async (req, res) => {
 
   const passwordHash = await hashSecret(newPassword);
   await setPasswordHash(req.user.id, passwordHash, { mustChangePassword: false });
+  // A password change is usually a response to suspected compromise - end every
+  // other session (each device's refresh token) and re-issue one for this device.
+  await revokeAllForUser(req.user.id);
+  await issueFullSession(req, res, req.user);
   await recordEvent({ userId: req.user.id, eventType: 'password_changed', ipAddress: req.ip });
 
   res.json({ ok: true });
 });
 
+// Step-up: a session alone is not enough to mint a fresh set of backup codes -
+// they are long-lived 2FA bypass credentials, so a stolen session cookie must
+// not be able to turn itself into permanent 2FA access. Require a current TOTP
+// code (not a backup code: the point is to prove possession of the device).
+// Failures count toward the same per-account 2FA lockout as login.
 export const regenerateBackupCodes = asyncHandler(async (req, res) => {
+  const { code } = twoFaCodeSchema.parse(req.body);
+  const user = req.user;
+
+  if (!user.totp_enabled || !user.totp_secret_enc) {
+    throw new ValidationError('2FA is not set up for this account');
+  }
+  if (user.twofa_locked_until && new Date(user.twofa_locked_until) > new Date()) {
+    throw new ForbiddenError('Too many incorrect verification codes. Please try again later.');
+  }
+
+  const valid = !looksLikeBackupCode(code)
+    && await verifyTotpCode(user.id, decryptStoredSecret(user.totp_secret_enc), code);
+  if (!valid) {
+    await recordTwoFactorFailure(req, user, 'backup_codes_regenerate_failed');
+    throw new ValidationError('Invalid verification code');
+  }
+  await resetFailedTwoFactor(user.id);
+
   const backupCodes = await issueBackupCodes(req.user.id);
   await recordEvent({ userId: req.user.id, eventType: 'backup_codes_regenerated', ipAddress: req.ip });
   res.json({ backupCodes });

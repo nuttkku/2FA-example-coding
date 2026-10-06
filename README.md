@@ -30,8 +30,8 @@ Facebook / LINE / Keycloak / OpenID Connect ทั่วไป — เขีย�
 
 | ส่วน | เทคโนโลยี |
 |---|---|
-| Frontend | [Svelte 4](https://svelte.dev) + [Vite](https://vitejs.dev) + [svelte-spa-router](https://github.com/ItalyPaleAle/svelte-spa-router) |
-| Backend | [Node.js 20](https://nodejs.org) + [Express](https://expressjs.com) |
+| Frontend | [Svelte 5](https://svelte.dev) + [Vite 8](https://vitejs.dev) + [svelte-spa-router](https://github.com/ItalyPaleAle/svelte-spa-router) |
+| Backend | [Node.js 20](https://nodejs.org) + [Express 5](https://expressjs.com) |
 | Database | [PostgreSQL 16](https://www.postgresql.org) (ผ่าน `pg` driver, raw SQL — ไม่ใช้ ORM เพื่อให้เห็น query ตรง ๆ) |
 | 2FA | [otplib](https://github.com/yeojz/otplib) (TOTP) + [qrcode](https://github.com/soldair/node-qrcode) |
 | SSO / OIDC | [openid-client](https://github.com/panva/openid-client) v6 (Keycloak/LINE/generic OIDC) + Facebook OAuth2 เขียนมือ |
@@ -140,6 +140,7 @@ docker compose logs -f backend    # ดู log ของ API
 docker compose down               # หยุดทุก service (เก็บข้อมูลใน DB ไว้)
 docker compose down -v            # หยุด + ล้างฐานข้อมูลทั้งหมด (รอบต่อไปจะ seed admin/test user ใหม่)
 bash scripts/smoke-test.sh        # ทดสอบ flow หลักทั้งหมดแบบอัตโนมัติ (ต้องมีสแตกรันอยู่ก่อน)
+(cd e2e && npm ci && npx playwright install chromium && node ui-test.mjs)  # ทดสอบผ่านหน้าเว็บจริง (ใช้ DB ใหม่)
 ```
 
 > ถ้ารันแบบมี Keycloak ต้องใส่ `-f docker-compose.yml -f docker-compose.keycloak.yml` ทุกคำสั่ง
@@ -214,13 +215,20 @@ sequenceDiagram
 3. **pre-auth token เซ็นด้วย secret คนละตัว** (`PRE_AUTH_TOKEN_SECRET`) จาก access token
    (`ACCESS_TOKEN_SECRET`) — แม้โค้ดจะมี bug ที่ไหนสักที่ที่ดันเอา pre-auth token ไปเข้า middleware
    ตรวจ access token ก็ verify ไม่ผ่านอยู่ดี เพราะ secret ไม่ตรงกัน
+4. **โค้ด TOTP ใช้ซ้ำไม่ได้ (replay protection)** — ระบบจำ time-step ล่าสุดที่รับไปแล้ว
+   (`users.totp_last_used_step`) โค้ดที่เคยใช้ไปแล้ว (เช่นถูกแอบดูหรือถูก phishing) จะถูกปฏิเสธแม้ยังไม่หมดอายุ
+5. **เดาโค้ดไม่ได้เรื่อย ๆ (per-account lockout)** — ใส่โค้ดผิด (TOTP หรือ backup code) ครบ
+   `TWOFA_MAX_ATTEMPTS` ครั้ง (default 5) จะล็อก 2FA ของบัญชีนั้น `TWOFA_LOCK_MINUTES` นาที นับแยกจาก
+   lockout ของรหัสผ่าน และไม่ถูกรีเซ็ตด้วยการ login รหัสผ่านใหม่ (กันคนที่รู้รหัสผ่านอยู่แล้วเปลี่ยน IP
+   ไปเรื่อย ๆ เพื่อเลี่ยง rate limit ต่อ IP) — admin reset password/reset 2FA จะปลดล็อกให้
 
 ### Backup codes
 
-ตอนตั้ง 2FA สำเร็จ (หรือกด "regenerate" ในหน้า Profile) ระบบจะสุ่ม backup code 10 ชุด รูปแบบ
+ตอนตั้ง 2FA สำเร็จ (หรือกด "regenerate" ในหน้า Profile ซึ่งต้องใส่โค้ด TOTP ปัจจุบันยืนยันก่อน) ระบบจะสุ่ม backup code 10 ชุด รูปแบบ
 `XXXX-XXXX` แสดงให้ผู้ใช้เห็น **ครั้งเดียว** แล้วเก็บแค่ bcrypt hash ไว้ในตาราง `backup_codes` — ใช้แทน
 โค้ด TOTP ได้ตอน verify (ระบบเดา format จาก `XXXX-XXXX` เทียบกับ 6 หลักตัวเลข) แต่ละโค้ดใช้ได้ครั้งเดียว
-แล้วจะถูก mark `used_at` ทันที
+แล้วจะถูก mark `used_at` ทันที (ด้วย conditional `UPDATE ... WHERE used_at IS NULL` เพื่อให้ request
+ที่ยิงพร้อมกันด้วยโค้ดเดียวกันสำเร็จได้แค่ request เดียว)
 
 ## 🔗 SSO / OIDC (Facebook, LINE, Keycloak)
 
@@ -443,7 +451,11 @@ access token ที่ valid อยู่ก็ตาม เพราะกา�
 `refresh_token` ถูก **rotate ทุกครั้งที่ใช้**: เรียก `POST /api/auth/refresh` แต่ละครั้ง token เก่าจะถูก
 revoke (mark ในตาราง `refresh_tokens`) แล้วออกตัวใหม่ทันที ถ้ามีใครเอา refresh token ที่ revoke ไปแล้ว
 มาใช้ซ้ำ (สัญญาณว่าโดนขโมย token ไปแล้วมีคนใช้คนละที่กัน) ระบบจะ revoke session **ทั้งหมด** ของ user
-คนนั้นทันที เพื่อบังคับให้ login ใหม่
+คนนั้นทันที เพื่อบังคับให้ login ใหม่ — เฉพาะ token ที่ถูก **rotate** ไปแล้วเท่านั้น (`replaced_by` มีค่า)
+ส่วน token ที่ถูก revoke ตามปกติ (logout/เปลี่ยนรหัสผ่าน/admin) แค่ใช้ไม่ได้ ไม่ลาก session อื่นไปด้วย
+
+**เปลี่ยนรหัสผ่านแล้ว session อื่นทั้งหมดของบัญชีนั้นถูก revoke** (refresh token ทุกเครื่อง) แล้วออก session
+ใหม่ให้เครื่องที่เปลี่ยนรหัสเท่านั้น
 
 ## 📁 โครงสร้างโปรเจกต์
 
@@ -455,8 +467,9 @@ revoke (mark ในตาราง `refresh_tokens`) แล้วออกตั
 ├── .env.example                 # ตัวแปรระดับ infra (DB credential, ports)
 ├── scripts/
 │   ├── generate-secrets.sh      # สร้าง .env ทั้งหมด + generate secret ให้อัตโนมัติ
-│   └── smoke-test.sh            # ทดสอบ flow หลักทั้งหมดแบบ end-to-end (ใช้ใน CI ด้วย)
-├── .github/workflows/           # ci.yml (audit+scan+build+trivy+smoke test ทุก PR), cd.yml (publish image ตอน tag)
+│   └── smoke-test.sh            # ทดสอบ flow หลักทั้งหมดแบบ end-to-end ระดับ API (ใช้ใน CI ด้วย)
+├── e2e/ui-test.mjs              # ทดสอบผ่านหน้าเว็บจริงด้วย Playwright (ใช้ใน CI ด้วย)
+├── .github/workflows/           # ci.yml (audit+scan+build+trivy+smoke test+UI test ทุก PR), cd.yml (publish image ตอน tag)
 ├── CI-CD.md
 ├── CREDIT.md                    # รายชื่อ open-source software/บริการที่ใช้ในโปรเจกต์
 ├── backend/
@@ -473,7 +486,6 @@ revoke (mark ในตาราง `refresh_tokens`) แล้วออกตั
 └── frontend/
     ├── Dockerfile
     ├── .env.example
-    ├── .trivyignore             # CVE ที่ตรวจแล้วไม่มี code path ให้ exploit ได้จริงในการรันแบบนี้
     └── src/
         ├── lib/                 api.js, guards.js, stores/
         ├── pages/                1 ไฟล์ต่อ 1 หน้า (Login, Setup2FA, Verify2FA, AdminUsers, ...)
@@ -503,6 +515,7 @@ CI/CD อยู่ใน [CI-CD.md](CI-CD.md)
 | `TRUST_PROXY` | ปล่อยเป็น `false` ไว้ ถ้าไม่มี reverse proxy จริงอยู่หน้า backend (ค่า default ปลอดภัยกว่า) |
 | `COOKIE_SECURE` | ตั้ง `true` เฉพาะตอนรันผ่าน HTTPS จริง |
 | `LOGIN_MAX_ATTEMPTS` / `LOGIN_LOCK_MINUTES` | นโยบาย account lockout |
+| `TWOFA_MAX_ATTEMPTS` / `TWOFA_LOCK_MINUTES` | จำนวนโค้ด 2FA ผิดต่อบัญชีก่อนล็อก 2FA และระยะเวลาล็อก (default `5` / `15`) |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` / `ADMIN_FULL_NAME` | บัญชี admin ที่ seed ให้อัตโนมัติตอน start ครั้งแรก (ถูกบังคับเปลี่ยนรหัสผ่าน + ตั้ง 2FA ทันทีที่ login ครั้งแรก) |
 | `TEST_USER_EMAIL` / `TEST_USER_PASSWORD` / `TEST_USER_FULL_NAME` | บัญชี role `user` สำหรับทดสอบ RBAC โดยไม่ต้องสร้างมือ (มี default ในตัว ไม่บังคับตั้งเหมือน `ADMIN_*`) — seed ให้เฉพาะเมื่อ `NODE_ENV` ไม่ใช่ `production` เท่านั้น |
 | `FACEBOOK_ENABLED` / `FACEBOOK_CLIENT_ID` / `FACEBOOK_CLIENT_SECRET` | เปิด Facebook Login (ดูวิธีขอมาที่หัวข้อ [SSO / OIDC](#-sso--oidc-facebook-line-keycloak)) |
@@ -534,8 +547,8 @@ CI/CD อยู่ใน [CI-CD.md](CI-CD.md)
 | POST | `/refresh` | refresh cookie | ขอ access token ใหม่ (rotate refresh token) |
 | POST | `/logout` | ✅ | revoke refresh token, ลบ cookie ทั้งหมด |
 | GET | `/me` | ✅ | ข้อมูลผู้ใช้ปัจจุบัน |
-| POST | `/change-password` | ✅ | เปลี่ยนรหัสผ่าน (ต้องยืนยันรหัสเดิม) |
-| POST | `/2fa/backup-codes/regenerate` | ✅ | สร้าง backup codes ชุดใหม่ (ชุดเดิมใช้ไม่ได้อีก) |
+| POST | `/change-password` | ✅ | เปลี่ยนรหัสผ่าน (ต้องยืนยันรหัสเดิม) — revoke session อื่นทั้งหมด แล้วออก session ใหม่ให้เครื่องนี้ |
+| POST | `/2fa/backup-codes/regenerate` | ✅ + โค้ด TOTP | สร้าง backup codes ชุดใหม่ (ชุดเดิมใช้ไม่ได้อีก) — ต้องส่ง `{ code }` เป็นโค้ด TOTP ปัจจุบัน (step-up) |
 
 ### SSO (`/api/auth/sso`)
 
@@ -558,13 +571,14 @@ CI/CD อยู่ใน [CI-CD.md](CI-CD.md)
 
 ## 🛡 ความปลอดภัย: สแกนและ CI/CD
 
-โค้ดในโปรเจกต์นี้ผ่านการสแกนความปลอดภัยด้วย `npm audit` + [Semgrep](https://semgrep.dev) และ manual
-review 2 รอบ (ก่อน/หลังเพิ่มฟีเจอร์ SSO) — สรุปทุก finding ที่เจอและวิธีแก้อยู่ใน
+โค้ดในโปรเจกต์นี้ผ่านการสแกนความปลอดภัยด้วย `npm audit` + [Semgrep](https://semgrep.dev) +
+[Trivy](https://trivy.dev) + [Snyk](https://snyk.io) (Snyk เชื่อมกับ repo ผ่าน GitHub integration แล้วเปิด
+PR แก้ dependency ให้อัตโนมัติ) และ manual review หลายรอบ — สรุปทุก finding ที่เจอและวิธีแก้อยู่ใน
 [CLAUDE.md](CLAUDE.md#ผลการสแกนความปลอดภัย)
 
 กระบวนการพัฒนา/ตรวจสอบอัตโนมัติ (CI) ทุก push/PR และ publish image (CD) ตอน release ออกแบบไว้ละเอียดที่
 [CI-CD.md](CI-CD.md) — สรุปสั้น ๆ: ทุก PR ต้องผ่าน `npm audit`, Semgrep scan, `docker compose build`, และ
-smoke test แบบ end-to-end ([scripts/smoke-test.sh](scripts/smoke-test.sh)) ก่อน merge ได้
+smoke test แบบ end-to-end ([scripts/smoke-test.sh](scripts/smoke-test.sh)) และ UI test ผ่าน browser ([e2e/ui-test.mjs](e2e/ui-test.mjs)) ก่อน merge ได้
 
 ## 🧱 ข้อจำกัดที่ตั้งใจไว้
 
@@ -597,6 +611,7 @@ smoke test แบบ end-to-end ([scripts/smoke-test.sh](scripts/smoke-test.sh))
   ของ provider นั้น)
 - เพิ่ม automated smoke test สำหรับ Keycloak variant ด้วย headless browser (Playwright) ให้ CI ครอบคลุม
   ทั้ง 2 docker-compose variant
+- บังคับ step-up (ใส่โค้ด TOTP อีกครั้ง) ก่อนเปลี่ยนรหัสผ่านด้วย (ตอนนี้บังคับแล้วเฉพาะ regenerate backup codes)
 - เพิ่ม Dependabot ต่อจาก pipeline ที่มีอยู่ใน [CI-CD.md](CI-CD.md) (container image scanning ด้วย
   Trivy มีอยู่แล้ว)
 

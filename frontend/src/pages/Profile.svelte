@@ -1,17 +1,19 @@
 <script>
+  import { preventDefault } from '../lib/events.js';
   import { push } from 'svelte-spa-router';
   import { authStore } from '../lib/stores/auth.js';
   import { api, ApiError } from '../lib/api.js';
   import { pendingBackupCodes } from '../lib/stores/backupCodes.js';
 
-  let error = '';
-  let regenerating = false;
+  let error = $state('');
+  let regenerating = $state(false);
+  let code = $state('');
 
   async function regenerate() {
     error = '';
     regenerating = true;
     try {
-      const result = await api.regenerateBackupCodes();
+      const result = await api.regenerateBackupCodes(code.trim());
       pendingBackupCodes.set({ codes: result.backupCodes, nextRoute: '/profile' });
       push('/2fa/backup-codes');
     } catch (err) {
@@ -45,9 +47,22 @@
       device, ask an administrator to reset your 2FA so you can go through setup again.
     </p>
 
-    <button class="btn btn-secondary" on:click={regenerate} disabled={regenerating}>
-      {regenerating ? 'Generating…' : 'Regenerate backup codes'}
-    </button>
+    <form onsubmit={preventDefault(regenerate)}>
+      <div class="field">
+        <label for="regen-code">Current code from your authenticator app</label>
+        <input
+          id="regen-code"
+          bind:value={code}
+          autocomplete="one-time-code"
+          inputmode="numeric"
+          required
+          placeholder="123456"
+        />
+      </div>
+      <button class="btn btn-secondary" type="submit" disabled={regenerating}>
+        {regenerating ? 'Generating…' : 'Regenerate backup codes'}
+      </button>
+    </form>
 
     <div style="margin-top:1.5rem;">
       {#if $authStore.user?.hasPassword}

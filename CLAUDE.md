@@ -11,7 +11,8 @@
 >    --config p/secrets --config p/javascript --config p/nodejsscan --exclude node_modules
 >    --exclude "*.md" /src`) แล้วพิจารณา finding ทุกอันอย่างจริงจังก่อนตัดสินว่าเป็น false positive
 > 3. ถ้า flow ใหม่กระทบ login/2FA/RBAC ให้เพิ่ม assertion ใน [scripts/smoke-test.sh](scripts/smoke-test.sh)
->    ด้วย ไม่ใช่แค่ทดสอบมือแล้วปล่อยผ่าน — สคริปต์นี้คือ regression test ตัวเดียวที่ CI มี
+>    (ระดับ API) และ/หรือ [e2e/ui-test.mjs](e2e/ui-test.mjs) (ผ่านหน้าเว็บจริงด้วย Playwright) ด้วย ไม่ใช่แค่
+>    ทดสอบมือแล้วปล่อยผ่าน — สองตัวนี้คือ regression test ที่ CI มี
 > 4. **อัปเดตไฟล์นี้ (CLAUDE.md)** ด้วยการตัดสินใจ/เหตุผลใหม่ที่เกิดขึ้น และอัปเดต [README.md](README.md)
 >    ถ้ากระทบสิ่งที่ผู้ใช้เห็น (ขั้นตอนติดตั้ง/ตัวแปร env/API/flow) แล้ว commit + push เสมอ — นี่คือ
 >    ข้อตกลงถาวรของโปรเจกต์นี้ ไม่ต้องรอให้สั่งซ้ำทุกครั้ง
@@ -29,7 +30,7 @@
 - รันทั้งหมดผ่าน Docker Compose (PostgreSQL + Express backend + Svelte frontend) มีทั้งแบบมี Keycloak
   ในตัว (`docker-compose.keycloak.yml` เป็น addon) และแบบไม่มี (`docker-compose.yml` เพียวๆ)
 
-Stack: **Svelte 4 + Vite** (frontend) / **Node.js + Express** (backend) / **PostgreSQL 16** (database)
+Stack: **Svelte 5 + Vite 8** (frontend) / **Node.js + Express** (backend) / **PostgreSQL 16** (database)
 
 ดู [README.md](README.md) สำหรับคำอธิบายขั้นตอนการทำงานแบบละเอียด (ใช้เป็นแหล่งเรียนรู้) และวิธีรัน,
 ดู [CI-CD.md](CI-CD.md) สำหรับกระบวนการพัฒนา/ตรวจสอบอัตโนมัติ, ดู [CREDIT.md](CREDIT.md) สำหรับรายชื่อ
@@ -76,6 +77,23 @@ token" (JWT อายุสั้น 5 นาที เก็บใน httpOnly 
    session เต็ม (access + refresh cookie) ทันที
 2. **`stage: 'verify'`** — ถ้าตั้ง 2FA ไว้แล้ว → frontend พาไปหน้า `/2fa/verify` → กรอกโค้ด TOTP
    หรือ backup code ที่ `POST /api/auth/2fa/verify` → สำเร็จจึงออก session เต็ม
+
+**โค้ด TOTP ใช้ได้ครั้งเดียว** — `verifyTotpCode(userId, secret, code)` ใน `twofa.service.js` หา
+time-step ของโค้ดด้วย `checkDelta()` แล้ว `claimTotpStep()` (conditional `UPDATE ... WHERE
+totp_last_used_step < $step`) ต้องสำเร็จด้วยถึงจะนับว่าถูก — `authenticator.check()` เฉย ๆ ของ otplib เป็น
+stateless รับโค้ดเดิมซ้ำได้ตลอดช่วง window ±1 step (~90 วินาที) `totp_last_used_step` ถูกล้างทุกครั้งที่สร้าง
+secret ใหม่ (`setTotpSecretPending`) และตอน admin reset 2FA
+
+**2FA lockout ต่อบัญชี แยกจาก password lockout** (`failed_2fa_attempts`/`twofa_locked_until`, migration
+`003_twofa_hardening.sql`, ค่า `TWOFA_MAX_ATTEMPTS`/`TWOFA_LOCK_MINUTES`) — rate limit ต่อ IP อย่างเดียว
+ไม่พอ เพราะคนที่ได้รหัสผ่านไปแล้วกระจายการเดาโค้ดไปหลาย IP ได้ ตั้งใจ**ไม่ใช้ counter เดียวกับ password
+lockout** เพราะจะทำให้คนที่แค่รู้ email ของ user SSO ยิงรหัสผิดจนล็อก 2FA ของเหยื่อได้ (ช่อง DoS เดียวกับที่
+ตั้งใจไม่เช็ค lockout กับ SSO ด้านล่าง) และ**ห้าม reset counter นี้ตอน password login สำเร็จ** (`resetFailedLogins`
+ไม่แตะ) ไม่งั้นคนที่มีรหัสผ่านแค่ login ใหม่ก็ได้โควตาเดาใหม่ — reset เฉพาะเมื่อ 2FA สำเร็จ หรือ admin reset
+password/2FA ส่วน `loadPreAuthUser()` ใน `auth.controller.js` เช็คซ้ำทุกครั้งที่ใช้ pre-auth cookie ว่า user
+ยังอยู่, ไม่ถูก disable, และ 2FA ไม่ถูกล็อก (pre-auth cookie อายุ 5 นาที สถานะอาจเปลี่ยนระหว่างนั้น)
+
+`twoFaLimiter` ตั้ง `skipSuccessfulRequests: true` — นับเฉพาะครั้งที่ผิด เพราะจุดประสงค์คือจำกัดการเดา
 
 **Admin ไม่มีทางปิด 2FA ให้ user คนไหนได้** มีแต่ "reset" (`POST /api/admin/users/:id/reset-2fa`)
 ซึ่งล้าง `totp_secret_enc`/`totp_enabled` กลับไปเป็นค่าว่าง — แปลว่า login ครั้งต่อไปของ user
@@ -183,9 +201,18 @@ attacker รู้แค่ email ของเหยื่อก็ยิง `/a
 ใช้ secret **คนละตัวกันทุก cookie** โดยตั้งใจ — ป้องกัน token ประเภทหนึ่งถูกใช้ปลอมเป็นอีกประเภทได้ถ้าหลุด
 `jwt.sign`/`jwt.verify` ทุกที่ pin `algorithm: 'HS256'` ตรง ๆ ไม่พึ่ง default inference ของ library
 
-`refresh_token` มีการ **rotate ทุกครั้งที่ใช้** (ตัวเก่าถูก revoke, ออกตัวใหม่ทันที) ถ้ามีคน
-เอา refresh token ที่ revoke ไปแล้วมาใช้ซ้ำ (สัญญาณว่าโดนขโมย token) ระบบจะ revoke session
-ทั้งหมดของ user คนนั้นทันที (`revokeAllForUser` ใน `token.service.js`)
+`refresh_token` มีการ **rotate ทุกครั้งที่ใช้** (ตัวเก่าถูก revoke + ตั้ง `replaced_by` เป็น jti ตัวใหม่,
+ออกตัวใหม่ทันที) ถ้ามีคนเอา refresh token ที่**ถูก rotate ไปแล้ว**มาใช้ซ้ำ (สัญญาณว่าโดนขโมย token) ระบบจะ
+revoke session ทั้งหมดของ user คนนั้นทันที (`revokeAllForUser` ใน `token.service.js`) — **เฉพาะตัวที่
+`replaced_by` มีค่าเท่านั้น** token ที่ถูก revoke เพราะ logout/เปลี่ยนรหัสผ่าน/admin แค่ตอบ 401 เฉย ๆ
+(เจอจริงตอนเขียน smoke test: ถ้านับทุก token ที่ revoke เป็น "ถูกขโมย" เครื่องเก่าที่ยัง refresh อยู่จะลาก
+session ใหม่ที่เพิ่งได้จากการเปลี่ยนรหัสผ่านให้หลุดไปด้วย) การ revoke ตอน rotate ใช้ conditional `UPDATE
+... WHERE revoked_at IS NULL` แล้วเช็ค `rowCount` — request ที่ยิงพร้อมกันด้วย token เดียวกันจะสำเร็จได้
+แค่ตัวเดียว ตัวที่แพ้ถือเป็น reuse
+
+`change-password` revoke refresh token ทุกตัวของ user แล้วออก session ใหม่ให้เครื่องที่เปลี่ยน (`issueFullSession`)
+— การเปลี่ยนรหัสผ่านมักเป็นการตอบสนองต่อการสงสัยว่าบัญชีหลุด session เก่าจึงไม่ควรอยู่ต่อ (access token
+เดิมที่ออกไปแล้วยังใช้ได้จนหมดอายุ 15 นาที เพราะเป็น stateless JWT — ข้อจำกัดที่รู้อยู่แล้ว)
 
 ## ทำไม hash บางอย่าง แต่เข้ารหัส (encrypt) บางอย่าง
 
@@ -226,6 +253,9 @@ reset อะไรไม่ได้เลย (`users:write` เฉพาะ adm
 
 Admin แก้ role/สถานะของ**ตัวเอง**ให้หลุดจาก admin หรือ disable ตัวเองไม่ได้ (กันล็อกตัวเองออกจากระบบ)
 ดู guard ใน [backend/src/controllers/admin.controller.js](backend/src/controllers/admin.controller.js) `patchUser`
+— `:id` ทุก route ผ่าน `parseUserId()` (zod `uuid()` แล้ว `toLowerCase()`) ก่อนเสมอ: id ที่ไม่ใช่ UUID ได้ 404
+แทน 500 จาก Postgres และ guard ข้างบนเทียบ string ตรง ๆ ถ้าไม่ normalize ตัวพิมพ์ admin จะส่ง id ตัวเองแบบ
+ตัวพิมพ์ใหญ่ (Postgres รับได้) เพื่อเลี่ยง guard นี้ได้
 
 ## ความปลอดภัยอื่น ๆ ที่ implement ไว้
 
@@ -275,6 +305,7 @@ frontend/src/
 ├── lib/
 │   ├── api.js              fetch wrapper เดียวสำหรับทั้งแอป (credentials: 'include' เสมอ)
 │   ├── guards.js            authGuard / adminGuard / userManagementReadGuard สำหรับ route
+│   ├── events.js            preventDefault()/self() แทน event modifier ของ Svelte 4
 │   └── stores/
 │       ├── auth.js          session state (เรียก GET /auth/me ตอน app mount)
 │       └── backupCodes.js   เก็บ backup codes ชั่วคราวในหน่วยความจำ (ไม่ persist) ระหว่างเปลี่ยนหน้า
@@ -303,6 +334,7 @@ docker compose down                # หยุด (เก็บ data ไว้) 
 docker compose down -v             # หยุด + ลบ volume postgres (รีเซ็ตฐานข้อมูลทั้งหมด)
 
 bash scripts/smoke-test.sh         # ยิง API จริงทดสอบ flow หลักทั้งหมด (ต้อง up -d ไว้ก่อน)
+(cd e2e && npm ci && npx playwright install chromium && node ui-test.mjs)   # ทดสอบผ่านหน้าเว็บจริง (ต้องใช้ DB ใหม่: down -v แล้ว up ก่อน)
 ```
 
 ไม่มี migration/seed command ที่ต้องรันแยกมือ — `backend/src/server.js` เรียก `runMigrations()`
@@ -341,7 +373,7 @@ setup บังคับเหมือนบัญชีอื่นทุก�
 
 ## ผลการสแกนความปลอดภัย
 
-สแกน 2 รอบตามที่ requirement กำหนด (รอบ 1 ก่อนเพิ่ม SSO, รอบ 2 หลังเพิ่ม SSO) ด้วย `npm audit` +
+สแกนรอบแรก 2 รอบตามที่ requirement กำหนด (รอบ 1 ก่อนเพิ่ม SSO, รอบ 2 หลังเพิ่ม SSO) ด้วย `npm audit` +
 [Semgrep](https://semgrep.dev) (`p/security-audit`, `p/secrets`, `p/javascript`, `p/nodejsscan`)
 ผ่าน Docker image `semgrep/semgrep` (ไม่ต้องติดตั้งอะไรบนเครื่อง) ร่วมกับ manual review — คำสั่งเต็มอยู่ที่
 [CI-CD.md](CI-CD.md#รันเหมือน-ci-บนเครื่องตัวเอง-ก่อน-push)
@@ -358,7 +390,8 @@ setup บังคับเหมือนบัญชีอื่นทุก�
 | Password field ไม่มี max length (bcrypt truncate เกิน 72 bytes แบบไม่มีใครรู้) | Manual review | เพิ่ม `.max(128)` ทุก schema ที่รับรหัสผ่าน/รหัสผ่านเดิม |
 | Vite dev server เปิด CORS แบบ allow-all โดย default (`server.cors` default `true`) | `npm audit` (esbuild GHSA-67mh-4wv8-2f99, ทางอ้อม) | ตั้ง `server.cors: false` ใน `vite.config.js` — app นี้ไม่ต้องพึ่ง cross-origin request ถึง dev server เลย |
 
-**Finding ที่ปล่อยผ่านโดยตั้งใจ** (`npm audit` ฝั่ง frontend): Svelte SSR XSS advisories (หลายตัว) กับ
+**Finding ที่ปล่อยผ่านโดยตั้งใจ** (`npm audit` ฝั่ง frontend — **แก้แล้วในรอบ 4** ด้วยการย้ายเป็น Svelte 5 +
+Vite 8 ย่อหน้านี้เก็บไว้เป็นประวัติ): Svelte SSR XSS advisories (หลายตัว) กับ
 esbuild dev-server CORS advisory ยังเจออยู่ในทุก patch ของ svelte@4.x/vite@5.x/esbuild@0.21.x ที่มี
 (ไม่มี non-breaking patch ที่แก้ได้ — ต้อง major upgrade เป็น Svelte 5 + Vite 6+ ซึ่งเปลี่ยน reactivity
 model ทั้งหมด นอกสโคปของงานนี้) ตรวจแล้วว่า **ไม่มี code path ที่ exploit ได้จริงในแอปนี้**: ไม่มีการเรียก
@@ -395,6 +428,8 @@ SSR (`svelte/server`) และไม่มีการใช้ `{@html ...}` �
   แค่ spawn nodemon ไม่แตะ path การติดตั้ง/แตกไฟล์ที่ CVE พวกนี้อยู่) → ตัดออกจากการสแกนด้วย
   `--skip-dirs` ใน `ci.yml` แทนการ ignore เป็นราย CVE เพราะ base image จะมี CVE ใหม่ในกลุ่มนี้โผล่มา
   เรื่อย ๆ ทุกครั้งที่อัปเดต
+- *(สองข้อด้านล่างเป็นประวัติ — exclusion ทั้งคู่ถูกลบออกแล้วในรอบ 4 เพราะ Vite 8 ไม่ใช้ esbuild และแก้ CVE
+  ของ vite แล้ว)*
 - `esbuild` (dependency ของ Vite) เป็น binary compile จาก Go — Trivy อ่าน Go stdlib module ที่ฝังอยู่
   ในตัว binary ได้ เจอ CVE ของ `net`/`net/http`/`net/mail` ของ Go ทั้งที่ esbuild ใช้แค่แปลงไฟล์ source
   ของเราเองในเครื่อง ไม่เปิด network service ที่ exercise code path พวกนั้นเลย → ตัดออกด้วย
@@ -403,8 +438,66 @@ SSR (`svelte/server`) และไม่มีการใช้ `{@html ...}` �
   path) — exploit ต้องอาศัย Vite dev server รันบน Windows filesystem แต่ container นี้รันบน Linux
   เสมอไม่ว่า host จะเป็น OS ไหน จึงไม่มี code path ที่ exploit ได้จริงในการรันแบบนี้ (แก้ตรงจริง ๆ ต้อง
   major upgrade เป็น Vite 6+ ซึ่งต้องใช้ Svelte 5 — ติด constraint เดียวกับ esbuild/Svelte SSR ที่บันทึก
-  ไว้ในรอบ 1) → บันทึกไว้ใน [frontend/.trivyignore](frontend/.trivyignore) พร้อมเหตุผลกำกับ ไม่ใช่ปล่อย
+  ไว้ในรอบ 1) → บันทึกไว้ใน `frontend/.trivyignore` พร้อมเหตุผลกำกับ ไม่ใช่ปล่อย
   เงียบ ๆ
+
+### รอบ 4 (Snyk + manual review ของโค้ดล่าสุด) — แก้แล้วทุกจุดที่แก้ได้จริง
+
+Snyk เชื่อมกับ repo ผ่าน GitHub integration (ผลมาจาก PR ที่ Snyk เปิด #1–#4) — Snyk CLI กับ Semgrep registry
+รันใน sandbox ตอนพัฒนารอบนี้ไม่ได้เพราะ network policy บล็อก จึงใช้ผลจาก PR ของ Snyk + log ของ CI run ล่าสุด
+แทน แล้วยืนยันว่า `// nosemgrep` กดทับได้จริงด้วย semgrep ในเครื่อง + rule จำลอง
+
+| จุดที่เจอ | เครื่องมือที่เจอ | การแก้ |
+|---|---|---|
+| `qs` (ผ่าน express/body-parser) DoS 2 ตัว (`SNYK-JS-QS-19432017`, `-19432019`) | Snyk (PR #1 เสนอ Express 5, Merge Risk: High) | แก้ก่อนด้วย `express@4.22.3` (ดึง `qs@6.16.0` ที่แก้แล้ว, non-breaking) แล้วย้ายเป็น Express 5 ใน commit แยกหลังทดสอบครบ (ดูด้านล่าง) |
+| `morgan` log injection ผ่าน `:remote-user` (`SNYK-JS-MORGAN-19432128`) | Snyk (PR #4) | `morgan@^1.12.0` |
+| `proxy-addr` IP spoofing ผ่าน IPv4-mapped IPv6 (critical), `brace-expansion` DoS | `npm audit` | `npm audit fix` (non-breaking) |
+| `braces` DoS ผ่าน `nodemon` → `chokidar@3` — ไม่มีเวอร์ชันแก้ของ `braces` เลย | `npm audit` | `overrides: { chokidar: ^4 }` ใน `backend/package.json` (chokidar 4 ไม่ใช้ `braces`) + ต้องตั้ง `pollingInterval` ใน `nodemon.json` (nodemon ส่ง `interval: undefined` ให้ chokidar 4 ตอน `legacyWatch` แล้ว crash) — ทดสอบแล้วว่าแก้ไฟล์แล้ว nodemon restart ปกติ |
+| `nanoid`, `source-map-js` DoS (frontend) | `npm audit` + Trivy (CI แดงอยู่) | `npm audit fix` (non-breaking) |
+| `openid-client`/`pg` ตามหลัง patch ล่าสุด (ไม่มี CVE) | Snyk (PR #2, #3) | อัปเดตไปพร้อมกัน |
+| Semgrep `good_helmet_checks` 6 ตัว — rule ประเภท "good" ที่รายงานว่า helmet **ตั้ง** header ให้แล้ว แต่ถูกนับเป็น blocking ภายใต้ `--error` (CI แดงอยู่) | Semgrep | `// nosemgrep` บรรทัดเดียวก่อน `app.use(helmet())` พร้อมเหตุผล |
+| `DUMMY_PASSWORD_HASH` — false positive ที่บันทึกไว้ตั้งแต่รอบ 2 แต่ยังทำ CI แดงอยู่ | Semgrep | `// nosemgrep` บรรทัดเดียวพร้อมเหตุผล |
+| โค้ด TOTP ใช้ซ้ำได้ภายใน ~90 วินาที (replay) | Manual review | จำ time-step ล่าสุด (`totp_last_used_step`) ดูหัวข้อการไหลของ 2FA |
+| ไม่มี lockout ต่อบัญชีสำหรับโค้ด 2FA — มีแต่ rate limit ต่อ IP | Manual review | `failed_2fa_attempts`/`twofa_locked_until` แยกจาก password lockout |
+| `verify`/`setup/confirm` ไม่เช็คว่า user ถูก disable ไประหว่างอายุ pre-auth cookie และ crash (500) ถ้า user ถูกลบ | Manual review | `loadPreAuthUser()` |
+| Backup code / refresh token rotation มี race (SELECT แล้ว UPDATE แยกกัน) — request พร้อมกันใช้ของชิ้นเดียวกันได้ 2 ครั้ง | Manual review | conditional `UPDATE ... WHERE used_at/revoked_at IS NULL` + เช็ค `rowCount` (ทดสอบยิงพร้อมกันแล้ว: ผ่านแค่ตัวเดียว) |
+| เปลี่ยนรหัสผ่านแล้ว refresh token ของเครื่องอื่นยังใช้ต่อได้ | Manual review | `revokeAllForUser` + ออก session ใหม่ให้เครื่องนี้ |
+| `/refresh` ออก access token ให้ user ที่ถูก disable/ลบไปแล้ว (crash 500 ถ้าถูกลบ) | Manual review | เช็ค user ก่อนออก token, ถ้า disabled revoke ทั้งหมด |
+| `/change-password` ไม่มี rate limit (ใช้ session ที่ขโมยมาเดารหัสเดิมได้ไม่จำกัด) | Manual review | ใส่ `loginLimiter` |
+| `:id` ของ admin route ไม่ validate — id ผิดรูปได้ 500, id ตัวพิมพ์ใหญ่เลี่ยง guard ห้ามลด role ตัวเองได้ | Manual review | `parseUserId()` (zod uuid + lowercase) |
+| SSO callback log `req.query.error` ดิบ ๆ → log injection (CR/LF) | Manual review | `sanitizeProviderError()` เหลือแค่ `[\w.-]`, ยาวไม่เกิน 64 |
+
+**Frontend ย้ายเป็น Svelte 5 + Vite 8 + `@sveltejs/vite-plugin-svelte` 7 + `svelte-spa-router` 5** — advisory
+ที่เหลือทั้งหมดฝั่ง frontend (Svelte SSR/DOM-clobbering XSS, esbuild dev-server CORS, `vite` `server.fs.deny`
+bypass ระดับ high ที่ทำ CI แดงอยู่บน `main`) ไม่มี patch ใน Svelte 4/Vite 5 แล้ว `npm audit` ฝั่ง frontend
+หลังย้ายเหลือ 0 ตัว โค้ดที่ต้องแก้มีแค่ 2 จุด:
+
+- `main.js`: `new App({ target })` → `mount(App, { target })` (Svelte 5 component เป็น function ไม่ใช่ class)
+- `App.svelte`: `<Router on:conditionsFailed=...>` → `onConditionsFailed=...` (svelte-spa-router 5 ใช้ callback
+  prop แทน component event)
+
+จากนั้นแปลงทุก component เป็น **runes** (`$state`/`$derived`, event attribute `onclick`/`onsubmit` แทน
+`on:` directive) และบังคับ `compilerOptions.runes: true` ใน `vite.config.js` — syntax แบบ Svelte 4 ที่หลงเหลือจะ
+compile ไม่ผ่านทันที ไม่ใช่แอบรันใน legacy mode ส่วน modifier `|preventDefault`/`|self` ที่ Svelte 5 ไม่มีแล้ว
+แทนด้วย wrapper เล็ก ๆ ใน `frontend/src/lib/events.js` store เดิม (`svelte/store` + `$authStore`) ใช้ต่อได้ใน
+runes mode จึงไม่ได้แปลง Vite 8 ต้องใช้ Node `^20.19 || >=22.12`
+(`node:20-alpine` ตอนนี้เป็น 20.20) และใช้ rolldown แทน esbuild จึงลบ `skip-files` ของ esbuild กับ
+`frontend/.trivyignore` ออกจาก CI
+
+**Backend ย้ายเป็น Express 5** (`express@^5`, body-parser 2) — ไม่มีโค้ดที่ใช้ API ที่ถูกถอดออก (`req.param()`,
+`res.redirect('back')`, wildcard `*` แบบไม่มีชื่อ, การเขียนทับ `req.query`) สิ่งที่เปลี่ยนพฤติกรรมจริงมีแค่ `req.body`
+เป็น `undefined` (ไม่ใช่ `{}`) เมื่อไม่มี body ซึ่ง zod schema ทุกตัวปฏิเสธเป็น 400 เหมือนเดิม `asyncHandler` ยังเก็บไว้
+แม้ Express 5 จะส่ง promise rejection เข้า error handler เองแล้ว (ไม่มีผลเสีย และไม่ต้องไล่แก้ทุก controller)
+
+`error.middleware.js` ตอบ 4xx ตาม `err.status` สำหรับ error ของ Express/body-parser เองที่ `expose: true` (JSON เสีย →
+400, body ใหญ่เกิน → 413) — เดิม (ทั้ง Express 4 และ 5) ตกไปเป็น 500 + log "Unexpected error" ทำให้ใครก็ยิง JSON
+เสียมาให้ log เต็มได้
+
+**Regenerate backup codes ต้อง step-up ด้วยโค้ด TOTP** (`POST /2fa/backup-codes/regenerate` รับ `{ code }`) —
+backup codes คือ credential ข้าม 2FA ที่อยู่ได้นาน ถ้าใช้แค่ session ก็ออกให้ได้ คนที่ขโมย session cookie ไปจะแปลง
+session ชั่วคราวเป็นสิทธิ์ข้าม 2FA ถาวรได้ ตั้งใจรับเฉพาะ TOTP ไม่รับ backup code (ต้องพิสูจน์ว่ายังถือเครื่องอยู่)
+ผ่าน `verifyTotpCode` ตัวเดียวกับ login (มี replay protection) ผิดแล้วนับเข้า 2FA lockout ตัวเดียวกัน และมี
+`twoFaLimiter`
 
 ## การทดสอบที่ทำไปแล้ว
 
@@ -416,6 +509,24 @@ Build และรันผ่าน `docker compose` จริงบน Docker 
   `/auth/me` → change password → admin create user (`manager`/`user`) → RBAC ปฏิเสธ `user` ที่เรียก
   `/admin/users` (403) → account lockout หลังผิดรหัส 5 ครั้ง → admin reset password ปลดล็อกได้ → login
   ด้วย backup code สำเร็จและใช้ซ้ำไม่ได้ → refresh token rotation → logout แล้ว `/auth/me` เป็น 401
+- รอบ 4: smoke test เพิ่ม assertion — เปลี่ยนรหัสผ่านแล้ว session เก่าถูก revoke, refresh token ที่ rotate
+  แล้วใช้ซ้ำโดน revoke ทั้ง family, TOTP replay ถูกปฏิเสธ, backup code ใช้ซ้ำไม่ได้, โค้ดผิด 5 ครั้งล็อก 2FA
+  (403) — รันผ่านครบกับ backend จริง + Postgres 16 (ใน sandbox รอบนี้ build image ไม่ได้เพราะ `apk` ออก
+  network ไม่ได้ จึงรัน backend ด้วย node ตรง ๆ แทน container) ทดสอบมือเพิ่ม: refresh พร้อมกัน 2 request ผ่าน
+  แค่ตัวเดียว, โค้ด TOTP ของ step ถัดไปใช้ได้ปกติ, admin route กับ id ผิดรูปได้ 404, uppercase id ของตัวเองโดน
+  guard (409)
+- รอบ 4 (หลังย้าย Svelte 5 + Vite 8): `vite build` ผ่าน, smoke test ผ่านครบผ่าน Vite 8 dev proxy, และทดสอบ UI
+  จริงด้วย Playwright (Chromium) ครบ flow: guard ส่งคนไม่ login ไป `/login` → login → บังคับตั้ง 2FA (QR +
+  secret) → backup codes 10 ชุด → บังคับเปลี่ยนรหัสผ่าน → dashboard → หน้า users (สร้าง user ผ่าน modal) →
+  audit log → profile → logout → user ใหม่ทำ flow เดียวกัน → RBAC guard ส่งไป `/unauthorized` — ไม่มี JS error
+  ในหน้าเว็บ (มีแค่ 401 ของ `/auth/me` ตอนยังไม่ login กับ 404 ของ `/favicon.ico` ซึ่งเป็นแบบนี้อยู่แล้ว)
+- **`e2e/ui-test.mjs` (Playwright) อยู่ใน CI แล้ว** (job `ui-test`) — ขับ UI จริงผ่าน Vite proxy ครบ flow: guard,
+  ข้อความ error ของ SSO, forced setup/password change, หน้า users (modal: role dialog/backdrop/Escape, สร้าง, ค้นหา,
+  เปลี่ยน role, disable/enable, reset 2FA, reset password 20 ครั้ง), audit log, step-up regenerate, verify ด้วย
+  backup code, RBAC ของ user ธรรมดา และไม่มี browser error ที่ไม่คาดไว้ ต้องใช้ฐานข้อมูลใหม่ (ทำ first login ของ
+  bootstrap admin) จึงเป็น job แยกจาก `smoke-test` ที่มี stack ของตัวเอง ที่ต้องมีเพราะ bug ฝั่ง frontend อย่าง
+  temporary password ที่ fail แบบสุ่ม ~16% (เจอจาก Playwright ในรอบ 4) smoke test ระดับ API มองไม่เห็นเลย —
+  ยืนยันแล้วว่าถ้าใส่ generator ตัวเก่ากลับไป test นี้ fail
 - ทุก Svelte component ยืนยันแล้วว่า compile ผ่าน Vite ได้ไม่มี error (`curl` แต่ละไฟล์ได้ HTTP 200)
 
 ทดสอบ SSO/Keycloak แบบ end-to-end จริงด้วย `curl` (จำลอง browser: ตาม redirect, submit ฟอร์ม login ของ

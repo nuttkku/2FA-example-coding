@@ -63,7 +63,8 @@ export async function clearMustChangePassword(id) {
 
 export async function setTotpSecretPending(id, encryptedSecret) {
   await pool.query(
-    'UPDATE users SET totp_secret_enc = $2, totp_enabled = FALSE, updated_at = now() WHERE id = $1',
+    `UPDATE users SET totp_secret_enc = $2, totp_enabled = FALSE, totp_last_used_step = NULL, updated_at = now()
+     WHERE id = $1`,
     [id, encryptedSecret],
   );
 }
@@ -74,10 +75,48 @@ export async function enableTotp(id) {
 
 export async function resetTwoFactor(id) {
   await pool.query(
-    'UPDATE users SET totp_enabled = FALSE, totp_secret_enc = NULL, updated_at = now() WHERE id = $1',
+    `UPDATE users SET totp_enabled = FALSE, totp_secret_enc = NULL, totp_last_used_step = NULL,
+       failed_2fa_attempts = 0, twofa_locked_until = NULL, updated_at = now()
+     WHERE id = $1`,
     [id],
   );
   await pool.query('DELETE FROM backup_codes WHERE user_id = $1', [id]);
+}
+
+// Atomically records `step` as the last accepted TOTP time-step, but only if it
+// is newer than the one already stored. Returns false when the code's step was
+// already used (a replay), including when two requests race with the same code.
+export async function claimTotpStep(id, step) {
+  const { rowCount } = await pool.query(
+    `UPDATE users SET totp_last_used_step = $2, updated_at = now()
+     WHERE id = $1 AND (totp_last_used_step IS NULL OR totp_last_used_step < $2)`,
+    [id, step],
+  );
+  return rowCount === 1;
+}
+
+export async function recordFailedTwoFactor(id, { maxAttempts, lockMinutes }) {
+  await pool.query(
+    `UPDATE users SET
+       failed_2fa_attempts = failed_2fa_attempts + 1,
+       twofa_locked_until = CASE
+         WHEN failed_2fa_attempts + 1 >= $2 THEN now() + ($3 || ' minutes')::interval
+         ELSE twofa_locked_until
+       END,
+       updated_at = now()
+     WHERE id = $1`,
+    [id, maxAttempts, lockMinutes],
+  );
+}
+
+// Only called after a successful 2FA check (or by an admin) - never after a
+// successful password check, otherwise someone holding the password could
+// reset the counter between guesses just by logging in again.
+export async function resetFailedTwoFactor(id) {
+  await pool.query(
+    'UPDATE users SET failed_2fa_attempts = 0, twofa_locked_until = NULL, updated_at = now() WHERE id = $1',
+    [id],
+  );
 }
 
 export async function recordFailedLogin(id, { maxAttempts, lockMinutes }) {

@@ -40,6 +40,8 @@ const schema = z.object({
 
   LOGIN_MAX_ATTEMPTS: z.coerce.number().default(5),
   LOGIN_LOCK_MINUTES: z.coerce.number().default(15),
+  TWOFA_MAX_ATTEMPTS: z.coerce.number().default(5),
+  TWOFA_LOCK_MINUTES: z.coerce.number().default(15),
 
   ADMIN_EMAIL: z.string().email(),
   ADMIN_PASSWORD: z.string().min(8),

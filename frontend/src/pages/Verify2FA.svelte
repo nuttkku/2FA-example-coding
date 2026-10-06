@@ -1,11 +1,12 @@
 <script>
+  import { preventDefault } from '../lib/events.js';
   import { push } from 'svelte-spa-router';
   import { api, ApiError } from '../lib/api.js';
   import { authStore } from '../lib/stores/auth.js';
 
-  let code = '';
-  let error = '';
-  let submitting = false;
+  let code = $state('');
+  let error = $state('');
+  let submitting = $state(false);
 
   async function handleSubmit() {
     error = '';
@@ -31,7 +32,7 @@
       <div class="alert alert-error">{error}</div>
     {/if}
 
-    <form on:submit|preventDefault={handleSubmit}>
+    <form onsubmit={preventDefault(handleSubmit)}>
       <div class="field">
         <label for="code">Verification code</label>
         <input

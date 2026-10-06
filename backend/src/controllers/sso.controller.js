@@ -15,6 +15,14 @@ function redirectToLoginError(res, reason) {
   res.redirect(`${env.FRONTEND_ORIGIN}/#/login?error=${encodeURIComponent(reason)}`);
 }
 
+// `error` comes straight from the callback URL, which anyone can craft. OAuth
+// error codes are short ASCII tokens (RFC 6749 section 4.1.2.1), so keep only
+// those characters - stripping CR/LF stops forged extra log lines (log
+// injection), and the length cap stops log/audit-table flooding.
+function sanitizeProviderError(value) {
+  return String(value).replace(/[^\w.-]/g, '').slice(0, 64) || 'unknown';
+}
+
 export const getProviders = asyncHandler(async (req, res) => {
   res.json({ providers: listEnabledProviders() });
 });
@@ -41,11 +49,12 @@ export const handleCallback = asyncHandler(async (req, res) => {
   clearSsoStateCookie(res);
 
   if (req.query.error) {
-    logger.warn(`[sso] ${provider.id} callback returned an error: ${req.query.error}`);
+    const errorCode = sanitizeProviderError(req.query.error);
+    logger.warn(`[sso] ${provider.id} callback returned an error: ${errorCode}`);
     await recordEvent({
       eventType: 'sso_login_failed',
       ipAddress: req.ip,
-      metadata: { provider: provider.id, error: String(req.query.error) },
+      metadata: { provider: provider.id, error: errorCode },
     });
     return redirectToLoginError(res, 'sso_denied');
   }

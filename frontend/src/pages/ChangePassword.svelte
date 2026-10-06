@@ -1,13 +1,14 @@
 <script>
+  import { preventDefault } from '../lib/events.js';
   import { push } from 'svelte-spa-router';
   import { api, ApiError } from '../lib/api.js';
   import { authStore } from '../lib/stores/auth.js';
 
-  let currentPassword = '';
-  let newPassword = '';
-  let confirmPassword = '';
-  let error = '';
-  let submitting = false;
+  let currentPassword = $state('');
+  let newPassword = $state('');
+  let confirmPassword = $state('');
+  let error = $state('');
+  let submitting = $state(false);
 
   async function handleSubmit() {
     error = '';
@@ -37,7 +38,7 @@
       <div class="alert alert-error">{error}</div>
     {/if}
 
-    <form on:submit|preventDefault={handleSubmit}>
+    <form onsubmit={preventDefault(handleSubmit)}>
       <div class="field">
         <label for="current">Current password</label>
         <input id="current" type="password" bind:value={currentPassword} required autocomplete="current-password" />

@@ -1,16 +1,17 @@
 <script>
+  import { preventDefault } from '../lib/events.js';
   import { onMount } from 'svelte';
   import { push } from 'svelte-spa-router';
   import { api, ApiError } from '../lib/api.js';
   import { authStore } from '../lib/stores/auth.js';
   import { pendingBackupCodes } from '../lib/stores/backupCodes.js';
 
-  let qrCodeDataUrl = '';
-  let secret = '';
-  let code = '';
-  let error = '';
-  let loading = true;
-  let submitting = false;
+  let qrCodeDataUrl = $state('');
+  let secret = $state('');
+  let code = $state('');
+  let error = $state('');
+  let loading = $state(true);
+  let submitting = $state(false);
 
   onMount(async () => {
     try {
@@ -68,7 +69,7 @@
       <p class="hint">Can't scan the code? Enter this secret manually:</p>
       <div class="code-block" style="margin-bottom:1.25rem;">{secret}</div>
 
-      <form on:submit|preventDefault={handleSubmit}>
+      <form onsubmit={preventDefault(handleSubmit)}>
         <div class="field">
           <label for="code">6-digit code</label>
           <input

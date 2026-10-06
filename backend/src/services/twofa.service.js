@@ -5,7 +5,7 @@ import { env } from '../config/env.js';
 import { encryptSecret, decryptSecret } from '../utils/crypto.js';
 import { generateBackupCodes, normalizeBackupCode } from '../utils/backupCodes.js';
 import { verifySecret } from '../utils/password.js';
-import { setTotpSecretPending } from './user.service.js';
+import { setTotpSecretPending, claimTotpStep } from './user.service.js';
 
 authenticator.options = { window: 1 };
 
@@ -19,8 +19,18 @@ export async function buildQrCode(secretBase32, email) {
   return { otpauthUrl, qrCodeDataUrl };
 }
 
-export function verifyTotpCode(secretBase32, code) {
-  return authenticator.check(code, secretBase32);
+// Checks the code and, if valid, claims its time-step for this user so the same
+// code can never be accepted twice (RFC 6238 section 5.2). otplib's plain
+// check() is stateless and would accept a code again for as long as it stays
+// inside the +/-1 step window (up to ~90s).
+export async function verifyTotpCode(userId, secretBase32, code) {
+  const now = Date.now();
+  const checker = authenticator.clone({ epoch: now });
+  const delta = checker.checkDelta(code, secretBase32);
+  if (delta === null) return false;
+
+  const step = Math.floor(now / 1000 / checker.allOptions().step) + delta;
+  return claimTotpStep(userId, step);
 }
 
 export async function storePendingSecret(userId, secretBase32) {
@@ -50,8 +60,13 @@ export async function consumeBackupCode(userId, code) {
 
   for (const row of rows) {
     if (await verifySecret(normalized, row.code_hash)) {
-      await pool.query('UPDATE backup_codes SET used_at = now() WHERE id = $1', [row.id]);
-      return true;
+      // Conditional update so two concurrent requests with the same code can't
+      // both succeed - only the one that actually flips used_at wins.
+      const { rowCount } = await pool.query(
+        'UPDATE backup_codes SET used_at = now() WHERE id = $1 AND used_at IS NULL',
+        [row.id],
+      );
+      return rowCount === 1;
     }
   }
   return false;

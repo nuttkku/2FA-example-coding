@@ -2,5 +2,6 @@
   "watch": ["src"],
   "ext": "js,json,sql",
   "ignore": ["src/**/*.test.js"],
-  "legacyWatch": true
+  "legacyWatch": true,
+  "pollingInterval": 500
 }

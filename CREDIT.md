@@ -15,7 +15,7 @@
 
 | Package | ใช้ทำอะไร |
 |---|---|
-| [express](https://expressjs.com) | HTTP server / routing |
+| [express](https://expressjs.com) 5 | HTTP server / routing |
 | [pg](https://node-postgres.com) | PostgreSQL client |
 | [bcryptjs](https://github.com/dcodeIO/bcrypt.js) | Hash รหัสผ่าน/backup codes |
 | [jsonwebtoken](https://github.com/auth0/node-jsonwebtoken) | ออก/ตรวจ JWT (pre-auth, access, refresh, sso_state cookie) |
@@ -35,7 +35,7 @@
 
 | Package | ใช้ทำอะไร |
 |---|---|
-| [Svelte](https://svelte.dev) 4 | UI framework |
+| [Svelte](https://svelte.dev) 5 | UI framework |
 | [Vite](https://vitejs.dev) | Dev server / build tool (รวมถึง dev proxy ไป backend) |
 | [@sveltejs/vite-plugin-svelte](https://github.com/sveltejs/vite-plugin-svelte) | ผนวก Svelte เข้ากับ Vite |
 | [svelte-spa-router](https://github.com/ItalyPaleAle/svelte-spa-router) | Client-side routing แบบ hash-based |
@@ -55,7 +55,9 @@
 | [npm audit](https://docs.npmjs.com/cli/commands/npm-audit) | สแกนช่องโหว่ของ dependency |
 | [Semgrep](https://semgrep.dev) (ruleset `p/security-audit`, `p/secrets`, `p/javascript`, `p/nodejsscan`) | Static analysis หา pattern ที่เป็นช่องโหว่ในโค้ด |
 | [Trivy](https://trivy.dev) (Aqua Security) | สแกนช่องโหว่ของ container image ที่ build เสร็จ (OS package + dependency) |
-| [GitHub Actions](https://github.com/features/actions) | รัน CI (audit/scan/build/smoke test) และ CD (publish image) |
+| [Snyk](https://snyk.io) | สแกน dependency ผ่าน GitHub integration แล้วเปิด PR แก้ช่องโหว่ให้อัตโนมัติ |
+| [Playwright](https://playwright.dev) (Microsoft) | ขับ browser (Chromium) ทดสอบหน้าเว็บจริงแบบ end-to-end (`e2e/ui-test.mjs`) |
+| [GitHub Actions](https://github.com/features/actions) | รัน CI (audit/scan/build/smoke test/UI test) และ CD (publish image) |
 | [GitHub Container Registry (GHCR)](https://ghcr.io) | เก็บ image ที่ publish จาก CD pipeline |
 
 ## GitHub Actions ที่ใช้ใน workflow
