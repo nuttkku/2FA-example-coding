@@ -103,6 +103,13 @@
     }
   }
 
+  // Keyboard equivalent of clicking the backdrop: Escape closes whichever modal is open.
+  function closeModalOnEscape(event) {
+    if (event.key !== 'Escape') return;
+    showCreateModal = false;
+    resetPasswordTarget = null;
+  }
+
   async function resetTwoFactor(user) {
     if (!confirm(`Reset 2FA for ${user.email}? They will be forced through setup again on next login.`)) return;
     error = '';
@@ -115,6 +122,8 @@
     }
   }
 </script>
+
+<svelte:window onkeydown={closeModalOnEscape} />
 
 <div class="page">
   <div class="toolbar">
@@ -200,9 +209,11 @@
 </div>
 
 {#if showCreateModal}
-  <div class="modal-backdrop" onclick={self(() => (showCreateModal = false))}>
-    <div class="modal">
-      <h2>Create user</h2>
+  <!-- The backdrop click is a mouse shortcut only; keyboard users close with
+       Escape (svelte:window above) or the Cancel button, hence role="presentation". -->
+  <div class="modal-backdrop" role="presentation" onclick={self(() => (showCreateModal = false))}>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="create-user-title">
+      <h2 id="create-user-title">Create user</h2>
       <form onsubmit={preventDefault(submitCreateUser)}>
         <div class="field">
           <label for="new-email">Email</label>
@@ -235,9 +246,9 @@
 {/if}
 
 {#if resetPasswordTarget}
-  <div class="modal-backdrop" onclick={self(() => (resetPasswordTarget = null))}>
-    <div class="modal">
-      <h2>Reset password for {resetPasswordTarget.email}</h2>
+  <div class="modal-backdrop" role="presentation" onclick={self(() => (resetPasswordTarget = null))}>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="reset-password-title">
+      <h2 id="reset-password-title">Reset password for {resetPasswordTarget.email}</h2>
       <form onsubmit={preventDefault(submitResetPassword)}>
         <div class="field">
           <label for="reset-password">Temporary password</label>
