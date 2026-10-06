@@ -235,7 +235,30 @@ export const changePassword = asyncHandler(async (req, res) => {
   res.json({ ok: true });
 });
 
+// Step-up: a session alone is not enough to mint a fresh set of backup codes -
+// they are long-lived 2FA bypass credentials, so a stolen session cookie must
+// not be able to turn itself into permanent 2FA access. Require a current TOTP
+// code (not a backup code: the point is to prove possession of the device).
+// Failures count toward the same per-account 2FA lockout as login.
 export const regenerateBackupCodes = asyncHandler(async (req, res) => {
+  const { code } = twoFaCodeSchema.parse(req.body);
+  const user = req.user;
+
+  if (!user.totp_enabled || !user.totp_secret_enc) {
+    throw new ValidationError('2FA is not set up for this account');
+  }
+  if (user.twofa_locked_until && new Date(user.twofa_locked_until) > new Date()) {
+    throw new ForbiddenError('Too many incorrect verification codes. Please try again later.');
+  }
+
+  const valid = !looksLikeBackupCode(code)
+    && await verifyTotpCode(user.id, decryptStoredSecret(user.totp_secret_enc), code);
+  if (!valid) {
+    await recordTwoFactorFailure(req, user, 'backup_codes_regenerate_failed');
+    throw new ValidationError('Invalid verification code');
+  }
+  await resetFailedTwoFactor(user.id);
+
   const backupCodes = await issueBackupCodes(req.user.id);
   await recordEvent({ userId: req.user.id, eventType: 'backup_codes_regenerated', ipAddress: req.ip });
   res.json({ backupCodes });

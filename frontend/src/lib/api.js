@@ -34,7 +34,7 @@ export const api = {
   logout: () => request('/auth/logout', { method: 'POST' }),
   changePassword: (currentPassword, newPassword) =>
     request('/auth/change-password', { method: 'POST', body: { currentPassword, newPassword } }),
-  regenerateBackupCodes: () => request('/auth/2fa/backup-codes/regenerate', { method: 'POST' }),
+  regenerateBackupCodes: (code) => request('/auth/2fa/backup-codes/regenerate', { method: 'POST', body: { code } }),
 
   sso: {
     listProviders: () => request('/auth/sso/providers'),

@@ -478,8 +478,11 @@ component อื่นทุกตัวยังเขียนแบบ Svelte
 (`node:20-alpine` ตอนนี้เป็น 20.20) และใช้ rolldown แทน esbuild จึงลบ `skip-files` ของ esbuild กับ
 `frontend/.trivyignore` ออกจาก CI
 
-**ยังเหลือโดยตั้งใจ:** Backup codes regenerate ได้ด้วย session อย่างเดียว (ไม่มี step-up ด้วย TOTP) —
-บันทึกเป็นแนวทางต่อยอดใน README
+**Regenerate backup codes ต้อง step-up ด้วยโค้ด TOTP** (`POST /2fa/backup-codes/regenerate` รับ `{ code }`) —
+backup codes คือ credential ข้าม 2FA ที่อยู่ได้นาน ถ้าใช้แค่ session ก็ออกให้ได้ คนที่ขโมย session cookie ไปจะแปลง
+session ชั่วคราวเป็นสิทธิ์ข้าม 2FA ถาวรได้ ตั้งใจรับเฉพาะ TOTP ไม่รับ backup code (ต้องพิสูจน์ว่ายังถือเครื่องอยู่)
+ผ่าน `verifyTotpCode` ตัวเดียวกับ login (มี replay protection) ผิดแล้วนับเข้า 2FA lockout ตัวเดียวกัน และมี
+`twoFaLimiter`
 
 ## การทดสอบที่ทำไปแล้ว
 

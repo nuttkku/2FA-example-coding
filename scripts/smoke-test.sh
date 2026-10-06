@@ -4,7 +4,7 @@
 # same sequence used to validate this app by hand during development:
 # forced setup -> backup codes -> session -> password change ends other
 # sessions -> refresh-token reuse detection -> TOTP replay rejected -> backup
-# codes are single-use -> RBAC 403 for a plain user -> logout -> 401 ->
+# codes are single-use -> backup-code regeneration needs TOTP step-up -> RBAC 403 for a plain user -> logout -> 401 ->
 # per-account 2FA lockout. Exits non-zero on the first assertion failure.
 set -euo pipefail
 
@@ -74,6 +74,7 @@ echo "$CONFIRM" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8
 pass "2FA setup completed, session issued, 10 backup codes returned"
 BACKUP_CODE_1=$(echo "$CONFIRM" | json_get "backupCodes[0]")
 BACKUP_CODE_2=$(echo "$CONFIRM" | json_get "backupCodes[1]")
+BACKUP_CODE_3=$(echo "$CONFIRM" | json_get "backupCodes[2]")
 
 ME=$(curl -s -b admin_cookies.txt "$BASE_URL/api/auth/me")
 [ "$(echo "$ME" | json_get user.role)" = "admin" ] || fail "expected admin role: $ME"
@@ -123,6 +124,20 @@ admin_login
 [ "$(verify_code "$BACKUP_CODE_1")" != "complete" ] || fail "backup code was accepted a second time"
 pass "used backup code is rejected the second time"
 [ "$(verify_code "$BACKUP_CODE_2")" = "complete" ] || fail "login with the second backup code failed"
+
+echo "--- backup-code regeneration requires a fresh TOTP code (step-up) ---"
+regenerate_codes() {
+  curl -s -o /dev/null -w '%{http_code}' -b admin_cookies.txt -H "Content-Type: application/json" \
+    -d "{\"code\":\"$1\"}" "$BASE_URL/api/auth/2fa/backup-codes/regenerate"
+}
+STATUS=$(regenerate_codes "$BACKUP_CODE_3")
+[ "$STATUS" = "400" ] || fail "expected 400 regenerating backup codes with a backup code instead of TOTP, got $STATUS"
+pass "session alone (plus a backup code) cannot regenerate backup codes"
+# The setup code already claimed the current TOTP step, so wait for the next one.
+sleep $(( 31 - $(date +%s) % 30 ))
+STATUS=$(regenerate_codes "$(totp_code "$SECRET")")
+[ "$STATUS" = "200" ] || fail "expected 200 regenerating backup codes with a valid TOTP code, got $STATUS"
+pass "backup codes regenerated after TOTP step-up"
 
 echo "--- RBAC: admin creates a plain user, plain user is denied admin routes ---"
 TEST_EMAIL="smoketest-$(date +%s 2>/dev/null || echo static)@example.com"

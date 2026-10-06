@@ -223,7 +223,7 @@ sequenceDiagram
 
 ### Backup codes
 
-ตอนตั้ง 2FA สำเร็จ (หรือกด "regenerate" ในหน้า Profile) ระบบจะสุ่ม backup code 10 ชุด รูปแบบ
+ตอนตั้ง 2FA สำเร็จ (หรือกด "regenerate" ในหน้า Profile ซึ่งต้องใส่โค้ด TOTP ปัจจุบันยืนยันก่อน) ระบบจะสุ่ม backup code 10 ชุด รูปแบบ
 `XXXX-XXXX` แสดงให้ผู้ใช้เห็น **ครั้งเดียว** แล้วเก็บแค่ bcrypt hash ไว้ในตาราง `backup_codes` — ใช้แทน
 โค้ด TOTP ได้ตอน verify (ระบบเดา format จาก `XXXX-XXXX` เทียบกับ 6 หลักตัวเลข) แต่ละโค้ดใช้ได้ครั้งเดียว
 แล้วจะถูก mark `used_at` ทันที (ด้วย conditional `UPDATE ... WHERE used_at IS NULL` เพื่อให้ request
@@ -546,7 +546,7 @@ CI/CD อยู่ใน [CI-CD.md](CI-CD.md)
 | POST | `/logout` | ✅ | revoke refresh token, ลบ cookie ทั้งหมด |
 | GET | `/me` | ✅ | ข้อมูลผู้ใช้ปัจจุบัน |
 | POST | `/change-password` | ✅ | เปลี่ยนรหัสผ่าน (ต้องยืนยันรหัสเดิม) — revoke session อื่นทั้งหมด แล้วออก session ใหม่ให้เครื่องนี้ |
-| POST | `/2fa/backup-codes/regenerate` | ✅ | สร้าง backup codes ชุดใหม่ (ชุดเดิมใช้ไม่ได้อีก) |
+| POST | `/2fa/backup-codes/regenerate` | ✅ + โค้ด TOTP | สร้าง backup codes ชุดใหม่ (ชุดเดิมใช้ไม่ได้อีก) — ต้องส่ง `{ code }` เป็นโค้ด TOTP ปัจจุบัน (step-up) |
 
 ### SSO (`/api/auth/sso`)
 
@@ -609,7 +609,7 @@ smoke test แบบ end-to-end ([scripts/smoke-test.sh](scripts/smoke-test.sh))
   ของ provider นั้น)
 - เพิ่ม automated smoke test สำหรับ Keycloak variant ด้วย headless browser (Playwright) ให้ CI ครอบคลุม
   ทั้ง 2 docker-compose variant
-- บังคับ step-up (ใส่โค้ด TOTP อีกครั้ง) ก่อน regenerate backup codes / เปลี่ยนรหัสผ่าน
+- บังคับ step-up (ใส่โค้ด TOTP อีกครั้ง) ก่อนเปลี่ยนรหัสผ่านด้วย (ตอนนี้บังคับแล้วเฉพาะ regenerate backup codes)
 - ย้ายไป Express 5
 - แปลง component เป็น Svelte 5 runes (`$state`/`$props`) — ตอนนี้ใช้ syntax แบบ Svelte 4 ที่ Svelte 5 ยังรองรับใน legacy mode
 - เพิ่ม Dependabot ต่อจาก pipeline ที่มีอยู่ใน [CI-CD.md](CI-CD.md) (container image scanning ด้วย
