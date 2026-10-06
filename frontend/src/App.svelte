@@ -32,7 +32,7 @@
     '*': NotFound,
   };
 
-  let ready = false;
+  let ready = $state(false);
 
   onMount(async () => {
     await authStore.refresh();

@@ -29,7 +29,7 @@
         <a href="#/admin/audit-logs">Audit log</a>
       {/if}
       <span class="badge badge-{$authStore.user?.role}">{$authStore.user?.role}</span>
-      <button class="btn btn-secondary btn-sm" on:click={handleLogout}>Log out</button>
+      <button class="btn btn-secondary btn-sm" onclick={handleLogout}>Log out</button>
     {:else if $authStore.status === 'unauthenticated'}
       <a href="#/login">Sign in</a>
     {/if}

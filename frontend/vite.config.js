@@ -2,7 +2,10 @@ import { defineConfig } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 
 export default defineConfig({
-  plugins: [svelte()],
+  // Runes mode everywhere: any leftover Svelte 4 syntax (`export let`, `$:`,
+  // `on:` directives) becomes a compile error instead of silently running in
+  // legacy mode.
+  plugins: [svelte({ compilerOptions: { runes: true } })],
   server: {
     host: true,
     port: 5173,

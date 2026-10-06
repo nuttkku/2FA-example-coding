@@ -1,4 +1,5 @@
 <script>
+  import { preventDefault } from '../lib/events.js';
   import { onMount } from 'svelte';
   import { push } from 'svelte-spa-router';
   import { api, ApiError } from '../lib/api.js';
@@ -10,11 +11,11 @@
     sso_failed: 'Sign-in failed, please try again.',
   };
 
-  let email = '';
-  let password = '';
-  let error = '';
-  let loading = false;
-  let providers = [];
+  let email = $state('');
+  let password = $state('');
+  let error = $state('');
+  let loading = $state(false);
+  let providers = $state([]);
 
   onMount(async () => {
     const hash = window.location.hash;
@@ -63,7 +64,7 @@
       <div class="alert alert-error">{error}</div>
     {/if}
 
-    <form on:submit|preventDefault={handleSubmit}>
+    <form onsubmit={preventDefault(handleSubmit)}>
       <div class="field">
         <label for="email">Email</label>
         <input id="email" type="email" bind:value={email} required autocomplete="username" />

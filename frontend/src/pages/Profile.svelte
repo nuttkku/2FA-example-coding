@@ -1,12 +1,13 @@
 <script>
+  import { preventDefault } from '../lib/events.js';
   import { push } from 'svelte-spa-router';
   import { authStore } from '../lib/stores/auth.js';
   import { api, ApiError } from '../lib/api.js';
   import { pendingBackupCodes } from '../lib/stores/backupCodes.js';
 
-  let error = '';
-  let regenerating = false;
-  let code = '';
+  let error = $state('');
+  let regenerating = $state(false);
+  let code = $state('');
 
   async function regenerate() {
     error = '';
@@ -46,7 +47,7 @@
       device, ask an administrator to reset your 2FA so you can go through setup again.
     </p>
 
-    <form on:submit|preventDefault={regenerate}>
+    <form onsubmit={preventDefault(regenerate)}>
       <div class="field">
         <label for="regen-code">Current code from your authenticator app</label>
         <input

@@ -304,6 +304,7 @@ frontend/src/
 ├── lib/
 │   ├── api.js              fetch wrapper เดียวสำหรับทั้งแอป (credentials: 'include' เสมอ)
 │   ├── guards.js            authGuard / adminGuard / userManagementReadGuard สำหรับ route
+│   ├── events.js            preventDefault()/self() แทน event modifier ของ Svelte 4
 │   └── stores/
 │       ├── auth.js          session state (เรียก GET /auth/me ตอน app mount)
 │       └── backupCodes.js   เก็บ backup codes ชั่วคราวในหน่วยความจำ (ไม่ persist) ระหว่างเปลี่ยนหน้า
@@ -473,8 +474,11 @@ bypass ระดับ high ที่ทำ CI แดงอยู่บน `main
 - `App.svelte`: `<Router on:conditionsFailed=...>` → `onConditionsFailed=...` (svelte-spa-router 5 ใช้ callback
   prop แทน component event)
 
-component อื่นทุกตัวยังเขียนแบบ Svelte 4 (`export let`, `$:`, `on:click`) ซึ่ง Svelte 5 รองรับใน legacy mode —
-**ตั้งใจไม่แปลงเป็น runes ในรอบนี้** เพื่อให้ diff เล็กและตรวจง่าย Vite 8 ต้องใช้ Node `^20.19 || >=22.12`
+จากนั้นแปลงทุก component เป็น **runes** (`$state`/`$derived`, event attribute `onclick`/`onsubmit` แทน
+`on:` directive) และบังคับ `compilerOptions.runes: true` ใน `vite.config.js` — syntax แบบ Svelte 4 ที่หลงเหลือจะ
+compile ไม่ผ่านทันที ไม่ใช่แอบรันใน legacy mode ส่วน modifier `|preventDefault`/`|self` ที่ Svelte 5 ไม่มีแล้ว
+แทนด้วย wrapper เล็ก ๆ ใน `frontend/src/lib/events.js` store เดิม (`svelte/store` + `$authStore`) ใช้ต่อได้ใน
+runes mode จึงไม่ได้แปลง Vite 8 ต้องใช้ Node `^20.19 || >=22.12`
 (`node:20-alpine` ตอนนี้เป็น 20.20) และใช้ rolldown แทน esbuild จึงลบ `skip-files` ของ esbuild กับ
 `frontend/.trivyignore` ออกจาก CI
 

@@ -611,7 +611,6 @@ smoke test แบบ end-to-end ([scripts/smoke-test.sh](scripts/smoke-test.sh))
   ทั้ง 2 docker-compose variant
 - บังคับ step-up (ใส่โค้ด TOTP อีกครั้ง) ก่อนเปลี่ยนรหัสผ่านด้วย (ตอนนี้บังคับแล้วเฉพาะ regenerate backup codes)
 - ย้ายไป Express 5
-- แปลง component เป็น Svelte 5 runes (`$state`/`$props`) — ตอนนี้ใช้ syntax แบบ Svelte 4 ที่ Svelte 5 ยังรองรับใน legacy mode
 - เพิ่ม Dependabot ต่อจาก pipeline ที่มีอยู่ใน [CI-CD.md](CI-CD.md) (container image scanning ด้วย
   Trivy มีอยู่แล้ว)
 

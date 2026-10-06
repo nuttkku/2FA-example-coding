@@ -18,7 +18,7 @@
         These codes are no longer available to view. If you still need them, ask an administrator
         to reset your 2FA.
       </p>
-      <button class="btn btn-block" on:click={() => push('/dashboard')}>Go to dashboard</button>
+      <button class="btn btn-block" onclick={() => push('/dashboard')}>Go to dashboard</button>
     {:else}
       <p class="subtitle">
         Each code below can be used once, in place of your authenticator app, if you lose access to
@@ -29,7 +29,7 @@
           <div>{backupCode}</div>
         {/each}
       </div>
-      <button class="btn btn-block" on:click={continueOn}>I've saved these codes</button>
+      <button class="btn btn-block" onclick={continueOn}>I've saved these codes</button>
     {/if}
   </div>
 </div>

@@ -2,9 +2,9 @@
   import { onMount } from 'svelte';
   import { api, ApiError } from '../lib/api.js';
 
-  let events = [];
-  let loading = true;
-  let error = '';
+  let events = $state([]);
+  let loading = $state(true);
+  let error = $state('');
 
   onMount(async () => {
     try {
